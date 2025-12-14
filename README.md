@@ -1,2 +1,2 @@
 # Motivator
-App for tracking tasks to complete
+App for tracking tasks
