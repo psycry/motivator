@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "sh.digitalnomad" "\0"
-            VALUE "FileDescription", "motivator2" "\0"
+            VALUE "FileDescription", "motivator" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "motivator2" "\0"
+            VALUE "InternalName", "motivator" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2025 sh.digitalnomad. All rights reserved." "\0"
-            VALUE "OriginalFilename", "motivator2.exe" "\0"
-            VALUE "ProductName", "motivator2" "\0"
+            VALUE "OriginalFilename", "motivator.exe" "\0"
+            VALUE "ProductName", "motivator" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

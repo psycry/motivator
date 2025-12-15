@@ -1,6 +1,6 @@
 {
-    "name": "motivator2",
-    "short_name": "motivator2",
+    "name": "motivator",
+    "short_name": "motivator",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
