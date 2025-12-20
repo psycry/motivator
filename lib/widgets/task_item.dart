@@ -6,6 +6,50 @@ import 'package:flutter/material.dart';
 import '../models/overlap_segment.dart';
 import '../models/task.dart';
 
+// Custom painter for diagonal stripes
+class DiagonalStripesPainter extends CustomPainter {
+  final Color backgroundColor;
+  final Color stripeColor;
+  final double stripeWidth;
+  final double spacing;
+
+  DiagonalStripesPainter({
+    required this.backgroundColor,
+    required this.stripeColor,
+    this.stripeWidth = 2.0,
+    this.spacing = 8.0,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Paint background
+    final bgPaint = Paint()
+      ..color = backgroundColor
+      ..style = PaintingStyle.fill;
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), bgPaint);
+
+    // Paint diagonal stripes
+    final stripePaint = Paint()
+      ..color = stripeColor
+      ..strokeWidth = stripeWidth
+      ..style = PaintingStyle.stroke;
+
+    final diagonal = math.sqrt(size.width * size.width + size.height * size.height);
+    final step = spacing + stripeWidth;
+    
+    for (double i = -diagonal; i < diagonal; i += step) {
+      canvas.drawLine(
+        Offset(i, 0),
+        Offset(i + size.height, size.height),
+        stripePaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
 class TaskItem extends StatelessWidget {
   final Task task;
   final bool isOverlapping;
@@ -14,8 +58,9 @@ class TaskItem extends StatelessWidget {
   final Duration lateTrackedDuration;
   final bool isTracking;
   final bool isCompleted;
-  final VoidCallback onStart;
-  final VoidCallback onStop;
+  final bool isPastTask;
+  final bool isFutureTask;
+  final bool isCurrentTask;
   final VoidCallback onReset;
   final VoidCallback onComplete;
 
@@ -28,8 +73,9 @@ class TaskItem extends StatelessWidget {
     required this.lateTrackedDuration,
     required this.isTracking,
     required this.isCompleted,
-    required this.onStart,
-    required this.onStop,
+    this.isPastTask = false,
+    this.isFutureTask = false,
+    this.isCurrentTask = false,
     required this.onReset,
     required this.onComplete,
   }) : super(key: key);
@@ -69,24 +115,34 @@ class TaskItem extends StatelessWidget {
   }
 
   Color _resolveBackground() {
+    final now = DateTime.now();
+    
+    // Completed tasks are always green
     if (isCompleted) {
-      return Colors.green.shade500;
+      return Colors.green.shade300;
     }
-
-    if (task.duration.inSeconds == 0) {
-      return Colors.green.shade400;
+    
+    // Tasks being tracked are green
+    if (isTracking) {
+      return Colors.green.shade300;
     }
-
-    final planned = task.duration.inSeconds;
-    final actual = trackedDuration.inSeconds;
-    final ratio = actual / planned;
-
-    if (ratio <= 1) {
-      return Color.lerp(Colors.blue.shade100, Colors.green.shade400, ratio) ?? Colors.green.shade200;
+    
+    // Current task logic
+    if (isCurrentTask) {
+      // Current task is red if it has started but not being tracked
+      if (now.isAfter(task.startTime) && !isTracking) {
+        return Colors.red.shade300;
+      }
+      return Colors.blue.shade300;
     }
-
-    final overRatio = math.min(ratio - 1, 1.0);
-    return Color.lerp(Colors.green.shade400, Colors.red.shade400, overRatio) ?? Colors.red.shade400;
+    
+    // Past tasks that weren't completed or tracked are red
+    if (isPastTask && !isCompleted) {
+      return Colors.red.shade300;
+    }
+    
+    // Default color for future tasks
+    return Colors.blue.shade200;
   }
 
   Color _resolveBorder() {
@@ -94,44 +150,139 @@ class TaskItem extends StatelessWidget {
     return isOverlapping ? Colors.red.shade400 : base.withOpacity(0.8);
   }
 
+  List<Widget> _buildColorSegments() {
+    const unitHeight = 4.0;
+    final now = DateTime.now();
+    final taskStart = task.startTime;
+    final taskEnd = taskStart.add(task.duration);
+    final scheduledEnd = taskStart.add(task.scheduledDuration);
+    
+    List<Widget> segments = [];
+    
+    // If completed, entire task is green
+    if (isCompleted) {
+      return [
+        Positioned.fill(
+          child: Container(color: Colors.green.shade300),
+        ),
+      ];
+    }
+    
+    // Sort tracking segments by start time
+    final sortedSegments = [...task.trackingSegments]..sort((a, b) => a.start.compareTo(b.start));
+    
+    // Add current tracking segment if actively tracking
+    List<TrackingSegment> allSegments = [...sortedSegments];
+    if (isTracking && task.trackingStart != null) {
+      allSegments.add(TrackingSegment(start: task.trackingStart!, end: now));
+    }
+    
+    // First, paint the base layer based on time
+    // Past (before now): red
+    if (now.isAfter(taskStart)) {
+      final pastEnd = now.isBefore(taskEnd) ? now : taskEnd;
+      final topOffset = 0.0;
+      final segHeight = pastEnd.difference(taskStart).inMilliseconds / 60000.0 * unitHeight;
+      
+      if (segHeight > 0) {
+        segments.add(
+          Positioned(
+            top: topOffset,
+            left: 0,
+            right: 0,
+            height: segHeight,
+            child: Container(color: Colors.red.shade300),
+          ),
+        );
+      }
+    }
+    
+    // Future (after now): blue
+    if (taskEnd.isAfter(now)) {
+      final futureStart = taskStart.isAfter(now) ? taskStart : now;
+      final topOffset = futureStart.difference(taskStart).inMilliseconds / 60000.0 * unitHeight;
+      final segHeight = taskEnd.difference(futureStart).inMilliseconds / 60000.0 * unitHeight;
+      
+      if (segHeight > 0) {
+        segments.add(
+          Positioned(
+            top: topOffset,
+            left: 0,
+            right: 0,
+            height: segHeight,
+            child: Container(color: Colors.blue.shade300),
+          ),
+        );
+      }
+    }
+    
+    // Now overlay green for all tracking segments
+    for (final segment in allSegments) {
+      final segStart = segment.start.isBefore(taskStart) ? taskStart : segment.start;
+      final segEnd = segment.end.isAfter(taskEnd) ? taskEnd : segment.end;
+      
+      if (segEnd.isAfter(segStart)) {
+        final topOffset = segStart.difference(taskStart).inMilliseconds / 60000.0 * unitHeight;
+        final segHeight = segEnd.difference(segStart).inMilliseconds / 60000.0 * unitHeight;
+        
+        if (segHeight > 0) {
+          segments.add(
+            Positioned(
+              top: topOffset,
+              left: 0,
+              right: 0,
+              height: segHeight,
+              child: Container(color: Colors.green.shade300),
+            ),
+          );
+        }
+      }
+    }
+    
+    // Add overlap indicators on top
+    for (final overlapSeg in overlapSegments) {
+      if (overlapSeg.height > 0) {
+        segments.add(
+          Positioned(
+            top: overlapSeg.top,
+            left: 0,
+            right: 0,
+            height: overlapSeg.height,
+            child: CustomPaint(
+              painter: DiagonalStripesPainter(
+                backgroundColor: Colors.blue.shade300,
+                stripeColor: Colors.red.shade400,
+                stripeWidth: 2.0,
+                spacing: 6.0,
+              ),
+            ),
+          ),
+        );
+      }
+    }
+    
+    return segments;
+  }
+
   @override
   Widget build(BuildContext context) {
     const unitHeight = 4.0;
     const minMinutes = 0.25;
-    final plannedMinutes = task.duration.inMinutes.toDouble();
     final now = DateTime.now();
-    final scheduledMinutes = math.max(task.scheduledDuration.inMinutes.toDouble(), minMinutes);
-    final trackedMinutes = trackedDuration.inSeconds / 60.0;
-    final trackedWithinScheduled = math.min(trackedMinutes, scheduledMinutes);
-    final remainingMinutes = math.max(0.0, scheduledMinutes - trackedWithinScheduled);
-    final overrunMinutes = math.max(0.0, trackedMinutes - scheduledMinutes);
-
-    final isLate = task.startedLate;
-    double redMinutes = isLate ? trackedWithinScheduled : 0.0;
-    if (!isLate && !isTracking && !isCompleted) {
-      redMinutes = 0.0;
-    }
-    double greenMinutes = !isLate ? trackedWithinScheduled : 0.0;
-    if ((!isTracking && !isCompleted) || isLate) {
-      greenMinutes = 0.0;
-    }
-    final futureMinutes = remainingMinutes;
-
-    final height = (scheduledMinutes + overrunMinutes) * unitHeight;
+    final taskStart = task.startTime;
+    final scheduledDuration = task.scheduledDuration;
+    final scheduledMinutes = math.max(scheduledDuration.inMinutes.toDouble(), minMinutes);
     final scheduledHeight = scheduledMinutes * unitHeight;
-    final redHeight = redMinutes * unitHeight;
-    final greenHeight = greenMinutes * unitHeight;
-    final futureHeight = futureMinutes * unitHeight;
-    final overrunHeight = overrunMinutes * unitHeight;
+
+    final height = scheduledHeight;
 
     final filteredSegments = overlapSegments.where((segment) => segment.height > 0).toList();
-    final backgroundColor = _resolveBackground();
 
     return Container(
       margin: EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0),
       height: height,
       decoration: BoxDecoration(
-        color: backgroundColor,
+        color: Colors.blue.shade200, // Base color (will be covered by segments)
         borderRadius: BorderRadius.circular(8.0),
         border: Border.all(color: _resolveBorder()),
       ),
@@ -139,64 +290,9 @@ class TaskItem extends StatelessWidget {
         borderRadius: BorderRadius.circular(8.0),
         child: Stack(
           children: [
-            if (redHeight > 0)
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                height: redHeight,
-                child: Container(
-                  color: Colors.red.withOpacity(0.25),
-                ),
-              ),
-            if (greenHeight > 0)
-              Positioned(
-                top: redHeight,
-                left: 0,
-                right: 0,
-                height: greenHeight,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(isCompleted ? 0.5 : 0.25),
-                  ),
-                ),
-              ),
-            if (futureHeight > 0)
-              Positioned(
-                top: redHeight + greenHeight,
-                left: 0,
-                right: 0,
-                height: futureHeight,
-                child: Container(
-                  color: Colors.blue.withOpacity(0.2),
-                ),
-              ),
-            if (overrunHeight > 0)
-              Positioned(
-                top: scheduledHeight,
-                left: 0,
-                right: 0,
-                height: overrunHeight,
-                child: Container(
-                  color: Colors.red.withOpacity(0.35),
-                ),
-              ),
-            ...filteredSegments.map((segment) {
-              final double overlayTop = math.max(0, math.min(segment.top, scheduledHeight));
-              final double overlayHeight = math.max(0, math.min(segment.height, scheduledHeight - overlayTop));
-              if (overlayHeight <= 0) {
-                return const SizedBox.shrink();
-              }
-              return Positioned(
-                top: overlayTop,
-                left: 0,
-                right: 0,
-                height: overlayHeight,
-                child: Container(
-                  color: Colors.red.withOpacity(0.4),
-                ),
-              );
-            }),
+            // Color segments
+            ..._buildColorSegments(),
+            // Content overlay
             Padding(
               padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 6.0),
               child: LayoutBuilder(
@@ -206,75 +302,47 @@ class TaskItem extends StatelessWidget {
                     fit: BoxFit.scaleDown,
                     child: ConstrainedBox(
                       constraints: BoxConstraints(maxWidth: constraints.maxWidth),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(task.title, style: TextStyle(fontWeight: FontWeight.bold)),
-                          Text('${_formatTime(task.startTime)} · ${_formatDuration(task.duration)}'),
-                          SizedBox(height: 4.0),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.7),
-                                  borderRadius: BorderRadius.circular(12.0),
-                                ),
-                                child: Text(
-                                  _formatTracked(trackedDuration),
-                                  style: TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
-                                ),
-                              ),
-                              SizedBox(width: 12),
-                              SizedBox(
-                                height: 28,
-                                width: 28,
-                                child: IconButton(
-                                  padding: EdgeInsets.zero,
-                                  constraints: BoxConstraints(),
-                                  icon: Icon(Icons.refresh, size: 18),
-                                  color: Colors.white,
-                                  onPressed: task.startTime.isAfter(DateTime.now()) ? null : onReset,
-                                  tooltip: 'Reset Timer',
-                                ),
-                              ),
-                              SizedBox(width: 8),
-                              SizedBox(
-                                height: 28,
-                                width: 28,
-                                child: IconButton(
-                                  padding: EdgeInsets.zero,
-                                  constraints: BoxConstraints(),
-                                  icon: Icon(isTracking ? Icons.stop : Icons.play_arrow, size: 18),
-                                  color: Colors.white,
-                                  onPressed: task.startTime.isAfter(DateTime.now())
-                                      ? null
-                                      : isTracking
-                                          ? onStop
-                                          : onStart,
-                                  tooltip: isTracking ? 'Stop Tracking' : 'Start Tracking',
-                                ),
-                              ),
-                              SizedBox(width: 8),
-                              SizedBox(
-                                height: 28,
-                                width: 28,
-                                child: IconButton(
-                                  padding: EdgeInsets.zero,
-                                  constraints: BoxConstraints(),
-                                  icon: Icon(Icons.check_circle, size: 18),
-                                  color: isCompleted ? Colors.white70 : Colors.white,
-                                  onPressed: () {
-                                    if (!isCompleted) {
-                                      onComplete();
-                                    }
-                                  },
-                                  tooltip: 'Mark Complete',
-                                ),
-                              ),
-                            ],
+                          Flexible(
+                            fit: FlexFit.loose,
+                            child: Text(
+                              '${task.title} · ${_formatTime(task.startTime)} · ${_formatDuration(task.duration)}',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          SizedBox(width: 12),
+                          SizedBox(
+                            height: 28,
+                            width: 28,
+                            child: IconButton(
+                              padding: EdgeInsets.zero,
+                              constraints: BoxConstraints(),
+                              icon: Icon(Icons.refresh, size: 18),
+                              color: Colors.white,
+                              onPressed: onReset,
+                              tooltip: 'Reset Task',
+                            ),
+                          ),
+                          SizedBox(width: 8),
+                          SizedBox(
+                            height: 28,
+                            width: 28,
+                            child: IconButton(
+                              padding: EdgeInsets.zero,
+                              constraints: BoxConstraints(),
+                              icon: Icon(Icons.check_circle, size: 18),
+                              color: isCompleted ? Colors.white70 : Colors.white,
+                              onPressed: () {
+                                if (!isCompleted) {
+                                  onComplete();
+                                }
+                              },
+                              tooltip: 'Mark Complete',
+                            ),
                           ),
                         ],
                       ),

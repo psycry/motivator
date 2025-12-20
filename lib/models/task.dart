@@ -1,3 +1,10 @@
+class TrackingSegment {
+  final DateTime start;
+  final DateTime end;
+
+  TrackingSegment({required this.start, required this.end});
+}
+
 class Task {
   final String id;
   String title;
@@ -10,6 +17,7 @@ class Task {
   bool isTracking;
   DateTime? trackingStart;
   bool isCompleted;
+  List<TrackingSegment> trackingSegments;
 
   Task({
     required this.id,
@@ -23,8 +31,10 @@ class Task {
     this.isTracking = false,
     this.trackingStart,
     this.isCompleted = false,
+    List<TrackingSegment>? trackingSegments,
   })  : duration = duration,
         scheduledDuration = scheduledDuration ?? duration,
         trackedDuration = trackedDuration ?? Duration.zero,
-        lateTrackedDuration = lateTrackedDuration ?? Duration.zero;
+        lateTrackedDuration = lateTrackedDuration ?? Duration.zero,
+        trackingSegments = trackingSegments ?? [];
 }
