@@ -293,62 +293,60 @@ class TaskItem extends StatelessWidget {
             // Color segments
             ..._buildColorSegments(),
             // Content overlay
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 6.0),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  return FittedBox(
-                    alignment: Alignment.topLeft,
-                    fit: BoxFit.scaleDown,
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: constraints.maxWidth),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Flexible(
-                            fit: FlexFit.loose,
-                            child: Text(
-                              '${task.title} · ${_formatTime(task.startTime)} · ${_formatDuration(task.duration)}',
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          SizedBox(width: 12),
-                          SizedBox(
-                            height: 28,
-                            width: 28,
-                            child: IconButton(
-                              padding: EdgeInsets.zero,
-                              constraints: BoxConstraints(),
-                              icon: Icon(Icons.refresh, size: 18),
-                              color: Colors.white,
-                              onPressed: onReset,
-                              tooltip: 'Reset Task',
-                            ),
-                          ),
-                          SizedBox(width: 8),
-                          SizedBox(
-                            height: 28,
-                            width: 28,
-                            child: IconButton(
-                              padding: EdgeInsets.zero,
-                              constraints: BoxConstraints(),
-                              icon: Icon(Icons.check_circle, size: 18),
-                              color: isCompleted ? Colors.white70 : Colors.white,
-                              onPressed: () {
-                                if (!isCompleted) {
-                                  onComplete();
-                                }
-                              },
-                              tooltip: 'Mark Complete',
-                            ),
-                          ),
-                        ],
+            Positioned.fill(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 6.0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                  if (task.isRecurring || task.recurringParentId != null)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 4.0),
+                      child: Icon(
+                        Icons.repeat,
+                        size: 16,
+                        color: Colors.purple,
                       ),
                     ),
-                  );
-                },
+                  Expanded(
+                    child: Text(
+                      '${task.title} · ${_formatTime(task.startTime)} · ${_formatDuration(task.duration)}',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  SizedBox(width: 4),
+                  SizedBox(
+                    height: 28,
+                    width: 28,
+                    child: IconButton(
+                      padding: EdgeInsets.zero,
+                      constraints: BoxConstraints(),
+                      icon: Icon(Icons.refresh, size: 18),
+                      color: Colors.white,
+                      onPressed: onReset,
+                      tooltip: 'Reset Task',
+                    ),
+                  ),
+                  SizedBox(width: 8),
+                  SizedBox(
+                    height: 28,
+                    width: 28,
+                    child: IconButton(
+                      padding: EdgeInsets.zero,
+                      constraints: BoxConstraints(),
+                      icon: Icon(Icons.check_circle, size: 18),
+                      color: isCompleted ? Colors.white70 : Colors.white,
+                      onPressed: () {
+                        if (!isCompleted) {
+                          onComplete();
+                        }
+                      },
+                      tooltip: 'Mark Complete',
+                    ),
+                  ),
+                  ],
+                ),
               ),
             ),
           ],

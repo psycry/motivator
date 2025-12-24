@@ -14,17 +14,23 @@ import 'widgets/timeline_progress_indicator.dart';
 import 'widgets/calendar_dialog.dart';
 import 'services/firebase_service.dart';
 import 'services/auth_service.dart';
+import 'pages/auth_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
+  print('========================================');
+  print('MOTIVATOR APP STARTING');
+  print('========================================');
+  
   try {
+    print('Initializing Firebase...');
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-    print('Firebase initialized successfully');
+    print('✓ Firebase initialized successfully');
   } catch (e) {
-    print('Firebase initialization failed: $e');
+    print('❌ Firebase initialization failed: $e');
     print('App will run without Firebase backend');
   }
   
@@ -37,12 +43,42 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Task Calendar List',
+      title: 'Motivator',
       theme: ThemeData(
         primarySwatch: Colors.blue,
+        useMaterial3: true,
       ),
-      debugShowCheckedModeBanner: false, // Remove debug banner
-      home: const TaskCalendarPage(),
+      debugShowCheckedModeBanner: false,
+      home: const AuthWrapper(),
+    );
+  }
+}
+
+class AuthWrapper extends StatelessWidget {
+  const AuthWrapper({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        // Show loading while checking auth state
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+        
+        // Show login page if not authenticated
+        if (!snapshot.hasData || snapshot.data == null) {
+          return const AuthPage();
+        }
+        
+        // Show main app if authenticated
+        return const TaskCalendarPage();
+      },
     );
   }
 }
@@ -89,7 +125,7 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
   Timer? _timer;
   Task? currentTask;
   
-  late FirebaseService _firebaseService;
+  FirebaseService? _firebaseService;
   final AuthService _authService = AuthService();
   bool _isLoading = true;
 
@@ -116,24 +152,28 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
 
   Future<void> _initializeAuth() async {
     try {
-      // Check if user is already signed in
-      if (!_authService.isSignedIn()) {
-        // Sign in anonymously for now
-        await _authService.signInAnonymously();
-        print('Signed in anonymously: ${_authService.currentUserId}');
-      } else {
-        print('Already signed in: ${_authService.currentUserId}');
+      print('=== INITIALIZING FIREBASE SERVICE ===');
+      
+      // Get current authenticated user
+      final userId = _authService.currentUserId;
+      if (userId == null) {
+        print('❌ No authenticated user found');
+        setState(() {
+          _isLoading = false;
+        });
+        return;
       }
       
-      // Initialize Firebase service with authenticated user ID
-      _firebaseService = FirebaseService(userId: _authService.currentUserId ?? 'default_user');
+      print('✓ User authenticated: $userId');
+      print('Initializing Firebase service for user: $userId');
+      _firebaseService = FirebaseService(userId: userId);
       
       // Load tasks from Firebase
+      print('=== LOADING TASKS FROM FIREBASE ===');
       await _loadTasksFromFirebase();
     } catch (e) {
-      print('Error initializing auth: $e');
-      // Fallback to default user
-      _firebaseService = FirebaseService(userId: 'default_user');
+      print('❌ Error initializing Firebase service: $e');
+      print('Stack trace: ${StackTrace.current}');
       setState(() {
         _isLoading = false;
       });
@@ -142,11 +182,16 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
 
   Future<void> _loadTasksFromFirebase() async {
     try {
+      print('Calling loadAllTasks()...');
       // Add timeout to prevent infinite loading
-      final loadedTasks = await _firebaseService.loadAllTasks()
+      final loadedTasks = await _firebaseService!.loadAllTasks()
           .timeout(const Duration(seconds: 5));
-      final loadedSideTasks = await _firebaseService.loadSideTasks()
+      print('✓ loadAllTasks() returned ${loadedTasks.length} date(s)');
+      
+      print('Calling loadSideTasks()...');
+      final loadedSideTasks = await _firebaseService!.loadSideTasks()
           .timeout(const Duration(seconds: 5));
+      print('✓ loadSideTasks() returned ${loadedSideTasks.length} tasks');
       
       setState(() {
         tasksByDate = loadedTasks;
@@ -154,10 +199,26 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
         _isLoading = false;
       });
       
-      print('Tasks loaded from Firebase successfully');
-      print('Loaded ${tasksByDate.length} date(s) with tasks, ${sideTasks.length} side tasks');
+      print('=== LOAD COMPLETE ===');
+      print('✓ Tasks loaded from Firebase successfully');
+      print('✓ Total: ${tasksByDate.length} date(s) with tasks, ${sideTasks.length} side tasks');
+      
+      // Log details of what was loaded
+      tasksByDate.forEach((date, tasks) {
+        print('  - Date $date: ${tasks.length} tasks');
+        for (var task in tasks) {
+          print('    • ${task.title} (${task.id})');
+        }
+      });
+      if (sideTasks.isNotEmpty) {
+        print('  - Side tasks:');
+        for (var task in sideTasks) {
+          print('    • ${task.title} (${task.id})');
+        }
+      }
     } catch (e) {
-      print('Error loading tasks from Firebase: $e');
+      print('❌ Error loading tasks from Firebase: $e');
+      print('Stack trace: ${StackTrace.current}');
       print('Starting with empty task list');
       
       // Start with empty tasks - don't initialize sample tasks
@@ -190,22 +251,42 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
   }
 
   Future<void> _saveTasksToFirebase() async {
+    if (_firebaseService == null) {
+      print('⚠️ Firebase service not initialized yet, skipping save');
+      return;
+    }
+    
     try {
-      await _firebaseService.saveTasksForDate(selectedDate, timelineTasks)
-          .timeout(const Duration(seconds: 3));
+      print('_saveTasksToFirebase called for ${timelineTasks.length} tasks');
+      await _firebaseService!.saveTasksForDate(selectedDate, timelineTasks)
+          .timeout(const Duration(seconds: 5));
+      print('✓ _saveTasksToFirebase completed successfully');
     } catch (e) {
       // Silently fail - app works without Firebase
-      print('Could not save to Firebase: $e');
+      print('❌ Could not save to Firebase: $e');
+      if (e.toString().contains('permission-denied')) {
+        print('⚠️ Permission denied - check Firestore security rules');
+      }
     }
   }
 
   Future<void> _saveSideTasksToFirebase() async {
+    if (_firebaseService == null) {
+      print('⚠️ Firebase service not initialized yet, skipping side tasks save');
+      return;
+    }
+    
     try {
-      await _firebaseService.saveSideTasks(sideTasks)
-          .timeout(const Duration(seconds: 3));
+      print('_saveSideTasksToFirebase called for ${sideTasks.length} side tasks');
+      await _firebaseService!.saveSideTasks(sideTasks)
+          .timeout(const Duration(seconds: 5));
+      print('✓ _saveSideTasksToFirebase completed successfully');
     } catch (e) {
       // Silently fail - app works without Firebase
-      print('Could not save side tasks to Firebase: $e');
+      print('❌ Could not save side tasks to Firebase: $e');
+      if (e.toString().contains('permission-denied')) {
+        print('⚠️ Permission denied - check Firestore security rules');
+      }
     }
   }
 
@@ -484,11 +565,13 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
       });
       
       // Clear from Firebase
-      try {
-        await _firebaseService.clearAllTasks();
-        print('All tasks cleared successfully');
-      } catch (e) {
-        print('Error clearing tasks from Firebase: $e');
+      if (_firebaseService != null) {
+        try {
+          await _firebaseService!.clearAllTasks();
+          print('All tasks cleared successfully');
+        } catch (e) {
+          print('Error clearing tasks from Firebase: $e');
+        }
       }
     }
   }
@@ -496,6 +579,7 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
   bool _isOverlapping(Task task) {
     for (var other in timelineTasks) {
       if (other != task &&
+          !other.isCompleted && // Exclude completed tasks from overlap detection
           task.startTime.isBefore(other.startTime.add(other.duration)) &&
           other.startTime.isBefore(task.startTime.add(task.duration))) {
         return true;
@@ -531,7 +615,7 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
     final List<_OverlapRange> ranges = [];
 
     for (final other in timelineTasks) {
-      if (other == task) continue;
+      if (other == task || other.isCompleted) continue; // Exclude completed tasks
       final otherStart = other.startTime;
       final otherEnd = other.startTime.add(other.duration);
       final overlapStart = taskStart.isAfter(otherStart) ? taskStart : otherStart;
@@ -576,75 +660,216 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
     String selectedPeriod = 'PM';
     final durationHourController = TextEditingController(text: '1');
     final durationMinuteController = TextEditingController(text: '0');
+    bool isRecurring = false;
+    DateTime? recurringEndDate;
+    bool hasEndDate = false;
+    String recurrenceType = 'daily';
+    Set<int> selectedWeekdays = {startOfDay.weekday};
 
     showDialog(
       context: context,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
+            const weekdayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            const weekdayValues = [
+              DateTime.monday,
+              DateTime.tuesday,
+              DateTime.wednesday,
+              DateTime.thursday,
+              DateTime.friday,
+              DateTime.saturday,
+              DateTime.sunday,
+            ];
             return AlertDialog(
               title: const Text('Create New Task'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: titleController,
-                    decoration: const InputDecoration(labelText: 'Title'),
-                    autofocus: true,
-                  ),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: hourController,
-                          decoration: InputDecoration(labelText: 'Start Hour'),
-                          keyboardType: TextInputType.number,
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: titleController,
+                      decoration: const InputDecoration(labelText: 'Title'),
+                      autofocus: true,
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: hourController,
+                            decoration: InputDecoration(labelText: 'Start Hour'),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: minuteController,
+                            decoration: InputDecoration(labelText: 'Start Minute'),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        SizedBox(width: 8),
+                        DropdownButton<String>(
+                          value: selectedPeriod,
+                          items: const [
+                            DropdownMenuItem(value: 'AM', child: Text('AM')),
+                            DropdownMenuItem(value: 'PM', child: Text('PM')),
+                          ],
+                          onChanged: (value) {
+                            if (value != null) {
+                              setModalState(() {
+                                selectedPeriod = value;
+                              });
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: durationHourController,
+                            decoration: InputDecoration(labelText: 'Duration Hours'),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: durationMinuteController,
+                            decoration: InputDecoration(labelText: 'Duration Minutes'),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 16),
+                    Divider(),
+                    CheckboxListTile(
+                      title: const Text('Repeat Task'),
+                      subtitle: const Text('Choose how often this repeats'),
+                      value: isRecurring,
+                      onChanged: (value) {
+                        setModalState(() {
+                          isRecurring = value ?? false;
+                          if (isRecurring) {
+                            if (selectedWeekdays.isEmpty) {
+                              selectedWeekdays = {startOfDay.weekday};
+                            }
+                          } else {
+                            hasEndDate = false;
+                            recurringEndDate = null;
+                            recurrenceType = 'daily';
+                            selectedWeekdays = {startOfDay.weekday};
+                          }
+                        });
+                      },
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    if (isRecurring) ...[
+                      SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Repeat pattern',
+                          style: Theme.of(context).textTheme.titleMedium,
                         ),
                       ),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: TextField(
-                          controller: minuteController,
-                          decoration: InputDecoration(labelText: 'Start Minute'),
-                          keyboardType: TextInputType.number,
-                        ),
-                      ),
-                      SizedBox(width: 8),
+                      SizedBox(height: 8),
                       DropdownButton<String>(
-                        value: selectedPeriod,
+                        value: recurrenceType,
                         items: const [
-                          DropdownMenuItem(value: 'AM', child: Text('AM')),
-                          DropdownMenuItem(value: 'PM', child: Text('PM')),
+                          DropdownMenuItem(value: 'daily', child: Text('Daily')),
+                          DropdownMenuItem(value: 'weekly', child: Text('Weekly')),
                         ],
                         onChanged: (value) {
                           if (value != null) {
-                            setModalState(() => selectedPeriod = value);
+                            setModalState(() {
+                              recurrenceType = value;
+                              if (recurrenceType == 'weekly' && selectedWeekdays.isEmpty) {
+                                selectedWeekdays = {startOfDay.weekday};
+                              }
+                              if (recurrenceType == 'daily') {
+                                selectedWeekdays = {startOfDay.weekday};
+                              }
+                            });
                           }
                         },
                       ),
-                    ],
-                  ),
-                  SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: durationHourController,
-                          decoration: InputDecoration(labelText: 'Duration Hours'),
-                          keyboardType: TextInputType.number,
+                      if (recurrenceType == 'weekly') ...[
+                        SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: List<Widget>.generate(7, (index) {
+                            final label = weekdayLabels[index];
+                            final value = weekdayValues[index];
+                            final isSelected = selectedWeekdays.contains(value);
+                            return ChoiceChip(
+                              label: Text(label),
+                              selected: isSelected,
+                              onSelected: (selected) {
+                                setModalState(() {
+                                  if (selected) {
+                                    selectedWeekdays = {...selectedWeekdays, value};
+                                  } else if (selectedWeekdays.length > 1) {
+                                    final updated = {...selectedWeekdays};
+                                    updated.remove(value);
+                                    selectedWeekdays = updated;
+                                  }
+                                });
+                              },
+                            );
+                          }),
                         ),
+                      ],
+                      SizedBox(height: 8),
+                      CheckboxListTile(
+                        title: const Text('Set End Date'),
+                        subtitle: Text(hasEndDate && recurringEndDate != null
+                            ? 'Ends: ${_formatDate(recurringEndDate!)}'
+                            : 'Repeats indefinitely'),
+                        value: hasEndDate,
+                        onChanged: (value) {
+                          setModalState(() {
+                            hasEndDate = value ?? false;
+                            if (hasEndDate && recurringEndDate == null) {
+                              recurringEndDate = DateTime.now().add(const Duration(days: 30));
+                            } else if (!hasEndDate) {
+                              recurringEndDate = null;
+                            }
+                          });
+                        },
+                        contentPadding: EdgeInsets.zero,
                       ),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: TextField(
-                          controller: durationMinuteController,
-                          decoration: InputDecoration(labelText: 'Duration Minutes'),
-                          keyboardType: TextInputType.number,
+                      if (hasEndDate)
+                        ListTile(
+                          title: const Text('End Date'),
+                          subtitle: Text(recurringEndDate != null
+                              ? _formatDate(recurringEndDate!)
+                              : 'Select date'),
+                          trailing: const Icon(Icons.calendar_today),
+                          onTap: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: recurringEndDate ?? DateTime.now().add(Duration(days: 30)),
+                              firstDate: DateTime.now(),
+                              lastDate: DateTime.now().add(Duration(days: 365 * 2)),
+                            );
+                            if (picked != null) {
+                              setModalState(() {
+                                recurringEndDate = picked;
+                              });
+                            }
+                          },
+                          contentPadding: EdgeInsets.zero,
                         ),
-                      ),
                     ],
-                  ),
-                ],
+                  ],
+                ),
               ),
               actions: [
                 TextButton(
@@ -653,7 +878,17 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                 ),
                 TextButton(
                   onPressed: () {
-                    if (titleController.text.isEmpty) return;
+                    if (titleController.text.isEmpty) {
+                      print('⚠️ Task title is empty, not creating');
+                      return;
+                    }
+                    
+                    print('=== CREATING NEW TASK ===');
+                    print('Title: ${titleController.text}');
+                    print('Is Recurring: $isRecurring');
+                    print('Recurrence Type: $recurrenceType');
+                    print('Recurring Weekdays: $selectedWeekdays');
+                    print('Has End Date: $hasEndDate');
                     
                     setState(() {
                       int parsedHour = int.tryParse(hourController.text) ?? 12;
@@ -674,20 +909,42 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                         parsedMinute,
                       );
 
+                      final List<int> recurringWeekdayList = isRecurring && recurrenceType == 'weekly'
+                          ? (selectedWeekdays.isEmpty
+                              ? [startTime.weekday]
+                              : (selectedWeekdays.toList()..sort()))
+                          : <int>[];
+
                       final parsedDurationHours = (int.tryParse(durationHourController.text) ?? 1).clamp(0, 24 * 7);
                       final parsedDurationMinutes = (int.tryParse(durationMinuteController.text) ?? 0).clamp(0, 59);
                       final totalDurationMinutes = parsedDurationHours * 60 + parsedDurationMinutes;
                       final clampedDuration = totalDurationMinutes.clamp(1, 24 * 60);
                       final duration = Duration(minutes: clampedDuration);
 
+                      final taskId = DateTime.now().millisecondsSinceEpoch.toString();
                       final newTask = Task(
-                        id: DateTime.now().millisecondsSinceEpoch.toString(),
+                        id: taskId,
                         title: titleController.text,
                         startTime: startTime,
                         duration: duration,
+                        isRecurring: isRecurring,
+                        recurringStartDate: isRecurring ? _normalizeDate(startTime) : null,
+                        recurringEndDate: hasEndDate ? recurringEndDate : null,
+                        recurringWeekdays: recurringWeekdayList,
                       );
 
+                      print('✓ Task created with ID: $taskId');
                       sideTasks.add(newTask);
+                      print('✓ Task added to sideTasks (count: ${sideTasks.length})');
+                      
+                      // If recurring, generate instances for visible dates
+                      if (isRecurring) {
+                        print('Generating recurring instances...');
+                        _generateRecurringTaskInstances(newTask);
+                      }
+                      
+                      _saveSideTasksToFirebase();
+                      print('=== TASK CREATION COMPLETE ===');
                     });
                     Navigator.of(context).pop();
                   },
@@ -705,7 +962,6 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
     final titleController = TextEditingController(text: task.title);
     final initialHour24 = task.startTime.hour;
     final initialHour12 = initialHour24 % 12 == 0 ? 12 : initialHour24 % 12;
-    String selectedPeriod = initialHour24 >= 12 ? 'PM' : 'AM';
 
     final hourController = TextEditingController(text: initialHour12.toString());
     final minuteController = TextEditingController(text: task.startTime.minute.toString());
@@ -717,70 +973,234 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
     showDialog(
       context: context,
       builder: (context) {
+        // Use a map to maintain state across rebuilds
+        final dialogState = <String, dynamic>{
+          'selectedPeriod': initialHour24 >= 12 ? 'PM' : 'AM',
+          'isRecurring': task.isRecurring,
+          'hasEndDate': task.recurringEndDate != null,
+          'recurringEndDate': task.recurringEndDate,
+          'recurrenceType': task.recurringWeekdays.isNotEmpty ? 'weekly' : 'daily',
+          'recurringWeekdays': List<int>.from(
+            task.recurringWeekdays.isNotEmpty
+                ? task.recurringWeekdays
+                : [task.startTime.weekday],
+          ),
+        };
+
         return StatefulBuilder(
           builder: (context, setModalState) {
+            final selectedPeriod = dialogState['selectedPeriod'] as String;
+            final isRecurring = dialogState['isRecurring'] as bool;
+            final hasEndDate = dialogState['hasEndDate'] as bool;
+            final recurringEndDate = dialogState['recurringEndDate'] as DateTime?;
+            final recurrenceType = dialogState['recurrenceType'] as String;
+            final recurringWeekdays = List<int>.from(dialogState['recurringWeekdays'] as List<int>);
+            final recurringWeekdaySet = recurringWeekdays.toSet();
+            const weekdayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            const weekdayValues = [
+              DateTime.monday,
+              DateTime.tuesday,
+              DateTime.wednesday,
+              DateTime.thursday,
+              DateTime.friday,
+              DateTime.saturday,
+              DateTime.sunday,
+            ];
+            
             return AlertDialog(
               title: const Text('Edit Task'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: titleController,
-                    decoration: const InputDecoration(labelText: 'Title'),
-                  ),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: hourController,
-                          decoration: InputDecoration(labelText: 'Start Hour'),
-                          keyboardType: TextInputType.number,
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: titleController,
+                      decoration: const InputDecoration(labelText: 'Title'),
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: hourController,
+                            decoration: InputDecoration(labelText: 'Start Hour'),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: minuteController,
+                            decoration: InputDecoration(labelText: 'Start Minute'),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        SizedBox(width: 8),
+                        DropdownButton<String>(
+                          value: selectedPeriod,
+                          items: const [
+                            DropdownMenuItem(value: 'AM', child: Text('AM')),
+                            DropdownMenuItem(value: 'PM', child: Text('PM')),
+                          ],
+                          onChanged: (value) {
+                            if (value != null) {
+                              setModalState(() {
+                                dialogState['selectedPeriod'] = value;
+                              });
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: durationHourController,
+                            decoration: InputDecoration(labelText: 'Duration Hours'),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: durationMinuteController,
+                            decoration: InputDecoration(labelText: 'Duration Minutes'),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 16),
+                    Divider(),
+                    CheckboxListTile(
+                      title: const Text('Repeat Task'),
+                      subtitle: const Text('Choose how often this repeats'),
+                      value: isRecurring,
+                      onChanged: (value) {
+                        setModalState(() {
+                          final updatedValue = value ?? false;
+                          dialogState['isRecurring'] = updatedValue;
+                          if (updatedValue) {
+                            final currentWeekdays = List<int>.from(dialogState['recurringWeekdays'] as List<int>);
+                            if (currentWeekdays.isEmpty) {
+                              dialogState['recurringWeekdays'] = [task.startTime.weekday];
+                            }
+                          } else {
+                            dialogState['hasEndDate'] = false;
+                            dialogState['recurringEndDate'] = null;
+                            dialogState['recurrenceType'] = 'daily';
+                            dialogState['recurringWeekdays'] = [task.startTime.weekday];
+                          }
+                        });
+                      },
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    if (isRecurring) ...[
+                      SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Repeat pattern',
+                          style: Theme.of(context).textTheme.titleMedium,
                         ),
                       ),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: TextField(
-                          controller: minuteController,
-                          decoration: InputDecoration(labelText: 'Start Minute'),
-                          keyboardType: TextInputType.number,
-                        ),
-                      ),
-                      SizedBox(width: 8),
+                      SizedBox(height: 8),
                       DropdownButton<String>(
-                        value: selectedPeriod,
+                        value: recurrenceType,
                         items: const [
-                          DropdownMenuItem(value: 'AM', child: Text('AM')),
-                          DropdownMenuItem(value: 'PM', child: Text('PM')),
+                          DropdownMenuItem(value: 'daily', child: Text('Daily')),
+                          DropdownMenuItem(value: 'weekly', child: Text('Weekly')),
                         ],
                         onChanged: (value) {
                           if (value != null) {
-                            setModalState(() => selectedPeriod = value);
+                            setModalState(() {
+                              dialogState['recurrenceType'] = value;
+                              if (value == 'weekly') {
+                                final currentWeekdays = List<int>.from(dialogState['recurringWeekdays'] as List<int>);
+                                if (currentWeekdays.isEmpty) {
+                                  dialogState['recurringWeekdays'] = [task.startTime.weekday];
+                                }
+                              } else {
+                                dialogState['recurringWeekdays'] = [task.startTime.weekday];
+                              }
+                            });
                           }
                         },
                       ),
-                    ],
-                  ),
-                  SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: durationHourController,
-                          decoration: InputDecoration(labelText: 'Duration Hours'),
-                          keyboardType: TextInputType.number,
+                      if (recurrenceType == 'weekly') ...[
+                        SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: List<Widget>.generate(7, (index) {
+                            final label = weekdayLabels[index];
+                            final value = weekdayValues[index];
+                            final isSelected = recurringWeekdaySet.contains(value);
+                            return ChoiceChip(
+                              label: Text(label),
+                              selected: isSelected,
+                              onSelected: (selected) {
+                                setModalState(() {
+                                  final updated = recurringWeekdaySet.toSet();
+                                  if (selected) {
+                                    updated.add(value);
+                                  } else if (updated.length > 1) {
+                                    updated.remove(value);
+                                  }
+                                  dialogState['recurringWeekdays'] = updated.toList()..sort();
+                                });
+                              },
+                            );
+                          }),
                         ),
+                      ],
+                      SizedBox(height: 8),
+                      CheckboxListTile(
+                        title: const Text('Set End Date'),
+                        subtitle: Text(hasEndDate && recurringEndDate != null
+                            ? 'Ends: ${_formatDate(recurringEndDate!)}'
+                            : 'Repeats indefinitely'),
+                        value: hasEndDate,
+                        onChanged: (value) {
+                          setModalState(() {
+                            final updatedValue = value ?? false;
+                            dialogState['hasEndDate'] = updatedValue;
+                            final currentEndDate = dialogState['recurringEndDate'] as DateTime?;
+                            if (updatedValue && currentEndDate == null) {
+                              dialogState['recurringEndDate'] = DateTime.now().add(Duration(days: 30));
+                            } else if (!updatedValue) {
+                              dialogState['recurringEndDate'] = null;
+                            }
+                          });
+                        },
+                        contentPadding: EdgeInsets.zero,
                       ),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: TextField(
-                          controller: durationMinuteController,
-                          decoration: InputDecoration(labelText: 'Duration Minutes'),
-                          keyboardType: TextInputType.number,
+                      if (hasEndDate)
+                        ListTile(
+                          title: const Text('End Date'),
+                          subtitle: Text(recurringEndDate != null
+                              ? _formatDate(recurringEndDate!)
+                              : 'Select date'),
+                          trailing: const Icon(Icons.calendar_today),
+                          onTap: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: recurringEndDate ?? DateTime.now().add(Duration(days: 30)),
+                              firstDate: DateTime.now(),
+                              lastDate: DateTime.now().add(Duration(days: 365 * 2)),
+                            );
+                            if (picked != null) {
+                              setModalState(() {
+                                dialogState['recurringEndDate'] = picked;
+                              });
+                            }
+                          },
+                          contentPadding: EdgeInsets.zero,
                         ),
-                      ),
                     ],
-                  ),
-                ],
+                  ],
+                ),
               ),
               actions: [
                 TextButton(
@@ -788,13 +1208,34 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                   child: Text('Cancel'),
                 ),
                 TextButton(
+                  onPressed: () async {
+                    final confirmed = await _confirmDeleteTask(context, task);
+                    if (!confirmed) return;
+
+                    await _deleteTaskSeries(task);
+                    if (!mounted) return;
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text(
+                    'Delete',
+                    style: TextStyle(color: Colors.red),
+                  ),
+                ),
+                TextButton(
                   onPressed: () {
+                    final selectedPeriodValue = dialogState['selectedPeriod'] as String;
+                    final isRecurringValue = dialogState['isRecurring'] as bool;
+                    final hasEndDateValue = dialogState['hasEndDate'] as bool;
+                    final recurringEndDateValue = dialogState['recurringEndDate'] as DateTime?;
+                    final recurrenceTypeValue = dialogState['recurrenceType'] as String;
+                    final recurringWeekdaysValue = List<int>.from(dialogState['recurringWeekdays'] as List<int>);
+
                     setState(() {
                       task.title = titleController.text;
 
                       int parsedHour = int.tryParse(hourController.text) ?? initialHour12;
                       parsedHour = parsedHour.clamp(1, 12);
-                      if (selectedPeriod == 'AM') {
+                      if (selectedPeriodValue == 'AM') {
                         parsedHour = parsedHour % 12;
                       } else {
                         parsedHour = parsedHour % 12 + 12;
@@ -823,6 +1264,40 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                         task.trackingStart = task.isTracking ? DateTime.now() : null;
                         task.isCompleted = false;
                       }
+                      
+                      // Update recurring properties
+                      task.isRecurring = isRecurringValue;
+
+                      if (!isRecurringValue) {
+                        task.recurringStartDate = null;
+                        task.recurringEndDate = null;
+                        task.recurringWeekdays = [];
+                        task.recurringParentId = null;
+                        _clearRecurringInstances(task.id);
+                      } else {
+                        task.recurringEndDate = hasEndDateValue ? recurringEndDateValue : null;
+                        task.recurringStartDate ??= _normalizeDate(task.startTime);
+
+                        if (recurrenceTypeValue == 'weekly') {
+                          final effectiveWeekdays = recurringWeekdaysValue.isEmpty
+                              ? [task.startTime.weekday]
+                              : (List<int>.from(recurringWeekdaysValue)..sort());
+                          task.recurringWeekdays = effectiveWeekdays;
+                        } else {
+                          task.recurringWeekdays = [];
+                        }
+                      }
+
+                      if (task.isRecurring) {
+                        _generateRecurringTaskInstances(task);
+                      }
+                      
+                      // Save changes
+                      if (sideTasks.contains(task)) {
+                        _saveSideTasksToFirebase();
+                      } else {
+                        _saveTasksToFirebase();
+                      }
                     });
                     Navigator.of(context).pop();
                   },
@@ -836,12 +1311,100 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
     );
   }
 
+  Future<bool> _confirmDeleteTask(BuildContext context, Task task) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Delete Task'),
+            content: Text(
+              task.isRecurring || task.recurringParentId != null
+                  ? 'Delete the entire series for "${task.title}"? This cannot be undone.'
+                  : 'Delete "${task.title}"? This cannot be undone.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text(
+                  'Delete',
+                  style: TextStyle(color: Colors.red),
+                ),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  Future<void> _deleteTaskSeries(Task task) async {
+    final seriesId = task.recurringParentId ?? task.id;
+    final affectedDates = <DateTime>{};
+    var sideTasksChanged = false;
+
+    // Remove from UI immediately
+    setState(() {
+      final entries = tasksByDate.entries.toList();
+      for (final entry in entries) {
+        final beforeLength = entry.value.length;
+        entry.value.removeWhere(
+          (t) => t.id == seriesId || t.recurringParentId == seriesId,
+        );
+        if (entry.value.isEmpty) {
+          tasksByDate.remove(entry.key);
+        }
+        if (entry.value.length != beforeLength) {
+          affectedDates.add(entry.key);
+        }
+      }
+
+      final previousSideLength = sideTasks.length;
+      sideTasks.removeWhere((t) => t.id == seriesId || t.recurringParentId == seriesId);
+      sideTasksChanged = sideTasksChanged || previousSideLength != sideTasks.length;
+
+      if (currentTask != null &&
+          (currentTask!.id == seriesId || currentTask!.recurringParentId == seriesId)) {
+        currentTask = null;
+      }
+      
+      final currentDateKey = _normalizeDate(selectedDate);
+      if (!tasksByDate.containsKey(currentDateKey)) {
+        tasksByDate[currentDateKey] = [];
+      }
+    });
+
+    // Save to Firebase asynchronously
+    Future.delayed(Duration.zero, () async {
+      if (_firebaseService != null) {
+        for (final date in affectedDates) {
+          await _firebaseService!.saveTasksForDate(date, tasksByDate[date] ?? []);
+        }
+      }
+
+      if (sideTasksChanged) {
+        await _saveSideTasksToFirebase();
+      }
+    });
+  }
+
+  void _clearRecurringInstances(String parentId) {
+    final entries = tasksByDate.entries.toList();
+    for (final entry in entries) {
+      entry.value.removeWhere((task) => task.recurringParentId == parentId);
+      if (entry.value.isEmpty) {
+        tasksByDate.remove(entry.key);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(
-          title: const Text('Task Calendar List'),
+          title: const Text('Motivator'),
         ),
         body: const Center(
           child: CircularProgressIndicator(),
@@ -858,12 +1421,25 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
     
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Task Calendar List'),
+        title: const Text('Motivator'),
         actions: [
+          // User email display
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: Center(
+              child: Text(
+                _authService.currentUser?.email ?? '',
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
+          ),
           PopupMenuButton<String>(
-            onSelected: (value) {
+            onSelected: (value) async {
               if (value == 'clear_all') {
                 _clearAllTasks();
+              } else if (value == 'logout') {
+                await _authService.signOut();
+                // Navigation will happen automatically via auth state listener
               }
             },
             itemBuilder: (context) => [
@@ -877,16 +1453,29 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                   ],
                 ),
               ),
+              const PopupMenuItem(
+                value: 'logout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout),
+                    SizedBox(width: 8),
+                    Text('Sign Out'),
+                  ],
+                ),
+              ),
             ],
           ),
         ],
       ),
-      body: Row(
+      body: Column(
         children: [
           Expanded(
-            flex: 2,
-            child: Column(
+            child: Row(
               children: [
+                Expanded(
+                  flex: 2,
+                  child: Column(
+                    children: [
                 // Weekday selector section
                 Container(
                   padding: const EdgeInsets.all(8.0),
@@ -898,12 +1487,6 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                     children: [
                       Row(
                         children: [
-                          IconButton(
-                            onPressed: () => _showCalendarBottomSheet(context),
-                            icon: const Icon(Icons.calendar_month),
-                            tooltip: 'Open Calendar',
-                            color: Colors.purple,
-                          ),
                           IconButton(
                             onPressed: () {
                               setState(() {
@@ -922,13 +1505,26 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                             tooltip: 'Previous Week',
                           ),
                           Expanded(
-                            child: Text(
-                              _getWeekRangeText(),
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                              ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _getWeekRangeText(),
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: () => _showCalendarBottomSheet(context),
+                                  icon: const Icon(Icons.calendar_month, size: 20),
+                                  tooltip: 'Open Calendar',
+                                  color: Colors.purple,
+                                  padding: const EdgeInsets.all(4),
+                                  constraints: const BoxConstraints(),
+                                ),
+                              ],
                             ),
                           ),
                           IconButton(
@@ -1028,10 +1624,17 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                       child: Draggable<Task>(
                         data: task,
                         feedback: Material(
-                          child: _buildTaskItem(task),
                           elevation: 4.0,
+                          child: SizedBox(
+                            width: MediaQuery.of(context).size.width - timelineLeftPadding - timelineRightPadding,
+                            height: height,
+                            child: _buildTaskItem(task),
+                          ),
                         ),
-                        childWhenDragging: Container(),
+                        childWhenDragging: Opacity(
+                          opacity: 0.5,
+                          child: _buildTaskItem(task),
+                        ),
                         child: GestureDetector(
                           onTap: () => _showEditDialog(context, task),
                           child: _buildTaskItem(task),
@@ -1052,7 +1655,7 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                     ),
                   ),
                 ),
-                // Completed tasks section
+                // Completed tasks section - under timeline only
                 DragTarget<Task>(
                   builder: (context, candidateData, rejectedData) {
                     return Container(
@@ -1084,23 +1687,70 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                                   feedback: Material(
                                     child: Container(
                                       width: dragFeedbackWidth,
-                                      margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-                                      child: _buildTaskItem(task),
+                                      padding: EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        border: Border.all(color: Colors.grey.shade300),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          const Icon(Icons.check_circle, color: Colors.green, size: 16),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(
+                                              '${task.title} · ${_formatTime(task.startTime)} · ${_formatDuration(task.duration)}',
+                                              style: const TextStyle(fontSize: 12),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                     elevation: 4.0,
                                   ),
                                   childWhenDragging: Opacity(
                                     opacity: 0.3,
                                     child: Container(
-                                      margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-                                      child: _buildTaskItem(task),
+                                      padding: EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+                                      decoration: BoxDecoration(
+                                        border: Border(bottom: BorderSide(color: Colors.grey.shade300, width: 0.5)),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          const Icon(Icons.check_circle, color: Colors.green, size: 16),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(
+                                              '${task.title} · ${_formatTime(task.startTime)} · ${_formatDuration(task.duration)}',
+                                              style: const TextStyle(fontSize: 12),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
-                                  child: GestureDetector(
+                                  child: InkWell(
                                     onTap: () => _showEditDialog(context, task),
                                     child: Container(
-                                      margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-                                      child: _buildTaskItem(task),
+                                      padding: EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+                                      decoration: BoxDecoration(
+                                        border: Border(bottom: BorderSide(color: Colors.grey.shade300, width: 0.5)),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          const Icon(Icons.check_circle, color: Colors.green, size: 16),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(
+                                              '${task.title} · ${_formatTime(task.startTime)} · ${_formatDuration(task.duration)}',
+                                              style: const TextStyle(fontSize: 12),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 );
@@ -1129,13 +1779,13 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                     });
                   },
                 ),
-              ],
-            ),
-          ),
-          Expanded(
-            flex: 1,
-            child: Column(
-              children: [
+                    ],
+                  ),
+                ),
+                Expanded(
+                  flex: 1,
+                  child: Column(
+                    children: [
                 // Button section
                 Container(
                   padding: EdgeInsets.all(8.0),
@@ -1202,17 +1852,17 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                             feedback: Material(
                               child: Container(
                                 width: dragFeedbackWidth,
-                                child: _buildTaskItem(task),
+                                child: _buildTaskItem(task, isOnTimeline: false),
                               ),
                               elevation: 4.0,
                             ),
                             childWhenDragging: Opacity(
                               opacity: 0.3,
-                              child: _buildTaskItem(task),
+                              child: _buildTaskItem(task, isOnTimeline: false),
                             ),
                             child: GestureDetector(
                               onTap: () => _showEditDialog(context, task),
-                              child: _buildTaskItem(task),
+                              child: _buildTaskItem(task, isOnTimeline: false),
                             ),
                           );
                         },
@@ -1241,56 +1891,6 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                     },
                   ),
                 ),
-                // Completed tasks summary section
-                Container(
-                  height: completedTasksSummarySectionHeight,
-                  decoration: BoxDecoration(
-                    border: Border(top: BorderSide(color: Colors.grey.shade300, width: 2)),
-                    color: Colors.grey.shade100,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(8.0),
-                        child: Text(
-                          'Completed (${completedTasks.length})',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: ListView.builder(
-                          itemCount: completedTasks.length,
-                          itemBuilder: (context, index) {
-                            final task = completedTasks[index];
-                            return InkWell(
-                              onTap: () => _showEditDialog(context, task),
-                              child: Container(
-                                padding: EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
-                                decoration: BoxDecoration(
-                                  border: Border(bottom: BorderSide(color: Colors.grey.shade300, width: 0.5)),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(Icons.check_circle, color: Colors.green, size: 16),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        '${task.title} · ${_formatTime(task.startTime)} · ${_formatDuration(task.duration)}',
-                                        style: const TextStyle(fontSize: 12),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -1307,6 +1907,93 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
     final minute = time.minute.toString().padLeft(2, '0');
     final period = time.hour >= 12 ? 'PM' : 'AM';
     return '$hour:$minute $period';
+  }
+
+  String _formatDate(DateTime date) {
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+
+  void _generateRecurringTaskInstances(Task recurringTask) {
+    if (!recurringTask.isRecurring || recurringTask.recurringParentId != null) {
+      return;
+    }
+
+    try {
+      print('=== GENERATING RECURRING TASK INSTANCES ===');
+      print('Task: ${recurringTask.title}');
+
+      final startDate = recurringTask.recurringStartDate ?? _normalizeDate(recurringTask.startTime);
+      final endDate = recurringTask.recurringEndDate;
+      final now = _normalizeDate(DateTime.now());
+      final weeklyPattern = List<int>.from(recurringTask.recurringWeekdays);
+      final effectiveWeeklyPattern = weeklyPattern.isEmpty ? <int>[] : (List<int>.from(weeklyPattern)..sort());
+
+      // Determine generation horizon: at least 60 days or until end date
+      final horizonDate = endDate ?? now.add(const Duration(days: 60));
+      final totalDays = horizonDate.difference(startDate).inDays + 1;
+
+      print('Start date: $startDate');
+      print('End date: ${endDate ?? "indefinite"}');
+      print('Weekly pattern: ${effectiveWeeklyPattern.isEmpty ? "daily" : effectiveWeeklyPattern}');
+
+      // Remove existing instances for this recurring parent before regenerating
+      _clearRecurringInstances(recurringTask.id);
+
+      for (int i = 0; i < totalDays; i++) {
+        final candidateDate = startDate.add(Duration(days: i));
+        final normalizedDate = _normalizeDate(candidateDate);
+
+        if (normalizedDate.isBefore(startDate)) {
+          continue;
+        }
+        if (endDate != null && normalizedDate.isAfter(endDate)) {
+          break;
+        }
+
+        // Weekly recurrence filter
+        if (effectiveWeeklyPattern.isNotEmpty && !effectiveWeeklyPattern.contains(normalizedDate.weekday)) {
+          continue;
+        }
+
+        tasksByDate.putIfAbsent(normalizedDate, () => []);
+
+        final instanceStart = DateTime(
+          normalizedDate.year,
+          normalizedDate.month,
+          normalizedDate.day,
+          recurringTask.startTime.hour,
+          recurringTask.startTime.minute,
+        );
+
+        final instance = Task(
+          id: '${recurringTask.id}_${normalizedDate.millisecondsSinceEpoch}',
+          title: recurringTask.title,
+          startTime: instanceStart,
+          duration: recurringTask.duration,
+          scheduledDuration: recurringTask.scheduledDuration,
+          recurringParentId: recurringTask.id,
+          isRecurring: true,
+          recurringStartDate: recurringTask.recurringStartDate,
+          recurringEndDate: recurringTask.recurringEndDate,
+          recurringWeekdays: effectiveWeeklyPattern,
+        );
+
+        tasksByDate[normalizedDate]!.add(instance);
+        print('  - Created instance for ${_formatDate(normalizedDate)}');
+      }
+
+      // Ensure current timeline cache reflects updates
+      if (tasksByDate.containsKey(_normalizeDate(selectedDate))) {
+        timelineTasks = tasksByDate[_normalizeDate(selectedDate)] ?? [];
+      }
+
+      _saveTasksToFirebase();
+      print('=== RECURRENCE GENERATION COMPLETE ===');
+    } catch (e) {
+      print('❌ Error generating recurring task instances: $e');
+      print('Stack trace: ${StackTrace.current}');
+    }
   }
 
   String _formatDuration(Duration duration) {
@@ -1498,11 +2185,11 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
   }
 
   /// Helper method to build TaskItem widget with common parameters
-  Widget _buildTaskItem(Task task) {
+  Widget _buildTaskItem(Task task, {bool isOnTimeline = true}) {
     return TaskItem(
       task: task,
-      isOverlapping: _isOverlapping(task),
-      overlapSegments: _getOverlapSegments(task),
+      isOverlapping: isOnTimeline ? _isOverlapping(task) : false,
+      overlapSegments: isOnTimeline ? _getOverlapSegments(task) : const [],
       trackedDuration: _currentTrackedDuration(task),
       lateTrackedDuration: task.lateTrackedDuration,
       isTracking: task.isTracking,

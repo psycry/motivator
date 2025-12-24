@@ -32,6 +32,13 @@ class Task {
   DateTime? trackingStart;
   bool isCompleted;
   List<TrackingSegment> trackingSegments;
+  
+  // Recurring task properties
+  bool isRecurring;
+  DateTime? recurringStartDate;
+  DateTime? recurringEndDate; // null means indefinite
+  String? recurringParentId; // ID of the original recurring task
+  List<int> recurringWeekdays;
 
   Task({
     required this.id,
@@ -46,11 +53,17 @@ class Task {
     this.trackingStart,
     this.isCompleted = false,
     List<TrackingSegment>? trackingSegments,
+    this.isRecurring = false,
+    this.recurringStartDate,
+    this.recurringEndDate,
+    this.recurringParentId,
+    List<int>? recurringWeekdays,
   })  : duration = duration,
         scheduledDuration = scheduledDuration ?? duration,
         trackedDuration = trackedDuration ?? Duration.zero,
         lateTrackedDuration = lateTrackedDuration ?? Duration.zero,
-        trackingSegments = trackingSegments ?? [];
+        trackingSegments = trackingSegments ?? [],
+        recurringWeekdays = recurringWeekdays ?? [];
 
   Map<String, dynamic> toMap() {
     return {
@@ -66,6 +79,11 @@ class Task {
       'trackingStart': trackingStart?.toIso8601String(),
       'isCompleted': isCompleted,
       'trackingSegments': trackingSegments.map((s) => s.toMap()).toList(),
+      'isRecurring': isRecurring,
+      'recurringStartDate': recurringStartDate?.toIso8601String(),
+      'recurringEndDate': recurringEndDate?.toIso8601String(),
+      'recurringParentId': recurringParentId,
+      'recurringWeekdays': recurringWeekdays,
     };
   }
 
@@ -87,6 +105,18 @@ class Task {
       trackingSegments: (map['trackingSegments'] as List<dynamic>?)
           ?.map((s) => TrackingSegment.fromMap(s as Map<String, dynamic>))
           .toList() ?? [],
+      isRecurring: map['isRecurring'] as bool? ?? false,
+      recurringStartDate: map['recurringStartDate'] != null
+          ? DateTime.parse(map['recurringStartDate'] as String)
+          : null,
+      recurringEndDate: map['recurringEndDate'] != null
+          ? DateTime.parse(map['recurringEndDate'] as String)
+          : null,
+      recurringParentId: map['recurringParentId'] as String?,
+      recurringWeekdays: (map['recurringWeekdays'] as List<dynamic>?)
+              ?.map((value) => (value as num).toInt())
+              .toList() ??
+          [],
     );
   }
 }
