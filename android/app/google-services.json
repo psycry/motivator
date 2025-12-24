@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "776483653268",
+    "project_id": "motivator-web",
+    "storage_bucket": "motivator-web.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:776483653268:android:e6c941e8791a5964bd5681",
+        "android_client_info": {
+          "package_name": "sh.digitalnomad.motivator"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDcEsfNm1WRHg4L3nGAVR1Q9gQEzEZhuPE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
