@@ -12,6 +12,9 @@ import 'widgets/task_item.dart';
 import 'widgets/timeline_widget.dart';
 import 'widgets/timeline_progress_indicator.dart';
 import 'widgets/calendar_dialog.dart';
+import 'widgets/gemini_chat_widget.dart';
+import 'widgets/notes_widget.dart';
+import 'widgets/weather_widget.dart';
 import 'services/firebase_service.dart';
 import 'services/auth_service.dart';
 import 'pages/auth_page.dart';
@@ -127,6 +130,9 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
   
   FirebaseService? _firebaseService;
   final AuthService _authService = AuthService();
+  
+  // Notes
+  String _scratchNotes = '';
   bool _isLoading = true;
 
   DateTime _normalizeDate(DateTime date) {
@@ -193,9 +199,15 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
           .timeout(const Duration(seconds: 5));
       print('✓ loadSideTasks() returned ${loadedSideTasks.length} tasks');
       
+      print('Calling loadNotes()...');
+      final loadedNotes = await _firebaseService!.loadNotes()
+          .timeout(const Duration(seconds: 5));
+      print('✓ loadNotes() returned ${loadedNotes.length} characters');
+      
       setState(() {
         tasksByDate = loadedTasks;
         sideTasks = loadedSideTasks;
+        _scratchNotes = loadedNotes;
         _isLoading = false;
       });
       
@@ -287,6 +299,34 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
       if (e.toString().contains('permission-denied')) {
         print('⚠️ Permission denied - check Firestore security rules');
       }
+    }
+  }
+
+  Future<void> _saveNotesToFirebase() async {
+    if (_firebaseService == null) {
+      return;
+    }
+    
+    try {
+      await _firebaseService!.saveNotes(_scratchNotes);
+    } catch (e) {
+      // Silently fail - notes still work locally
+      print('❌ Could not save notes to Firebase: $e');
+    }
+  }
+
+  Future<void> _loadNotesFromFirebase() async {
+    if (_firebaseService == null) {
+      return;
+    }
+    
+    try {
+      final notes = await _firebaseService!.loadNotes();
+      setState(() {
+        _scratchNotes = notes;
+      });
+    } catch (e) {
+      print('❌ Could not load notes from Firebase: $e');
     }
   }
 
@@ -1199,6 +1239,97 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                           contentPadding: EdgeInsets.zero,
                         ),
                     ],
+                    SizedBox(height: 16),
+                    Divider(),
+                    // Sub-tasks section
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Sub-tasks',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    ...task.subTasks.asMap().entries.map((entry) {
+                      final index = entry.key;
+                      final subTask = entry.value;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 4.0),
+                        child: Row(
+                          children: [
+                            Checkbox(
+                              value: subTask.isCompleted,
+                              onChanged: (value) {
+                                setModalState(() {
+                                  subTask.isCompleted = value ?? false;
+                                });
+                              },
+                            ),
+                            Expanded(
+                              child: Text(
+                                subTask.title,
+                                style: TextStyle(
+                                  decoration: subTask.isCompleted
+                                      ? TextDecoration.lineThrough
+                                      : null,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              icon: Icon(Icons.delete, size: 20),
+                              onPressed: () {
+                                setModalState(() {
+                                  task.subTasks.removeAt(index);
+                                });
+                              },
+                              tooltip: 'Delete sub-task',
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                    SizedBox(height: 8),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        final subTaskController = TextEditingController();
+                        showDialog(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text('Add Sub-task'),
+                            content: TextField(
+                              controller: subTaskController,
+                              decoration: const InputDecoration(
+                                labelText: 'Sub-task title',
+                                hintText: 'Enter sub-task description',
+                              ),
+                              autofocus: true,
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(context).pop(),
+                                child: const Text('Cancel'),
+                              ),
+                              TextButton(
+                                onPressed: () {
+                                  if (subTaskController.text.isNotEmpty) {
+                                    setModalState(() {
+                                      task.subTasks.add(SubTask(
+                                        id: DateTime.now().millisecondsSinceEpoch.toString(),
+                                        title: subTaskController.text,
+                                      ));
+                                    });
+                                    Navigator.of(context).pop();
+                                  }
+                                },
+                                child: const Text('Add'),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                      icon: Icon(Icons.add),
+                      label: Text('Add Sub-task'),
+                    ),
                   ],
                 ),
               ),
@@ -1221,6 +1352,95 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                     style: TextStyle(color: Colors.red),
                   ),
                 ),
+                // Show "Save for all instances" button only for recurring tasks
+                if ((task.isRecurring || task.recurringParentId != null) && 
+                    (dialogState['isRecurring'] as bool))
+                  TextButton(
+                    onPressed: () {
+                      final selectedPeriodValue = dialogState['selectedPeriod'] as String;
+                      final isRecurringValue = dialogState['isRecurring'] as bool;
+                      final hasEndDateValue = dialogState['hasEndDate'] as bool;
+                      final recurringEndDateValue = dialogState['recurringEndDate'] as DateTime?;
+                      final recurrenceTypeValue = dialogState['recurrenceType'] as String;
+                      final recurringWeekdaysValue = List<int>.from(dialogState['recurringWeekdays'] as List<int>);
+
+                      setState(() {
+                        task.title = titleController.text;
+
+                        int parsedHour = int.tryParse(hourController.text) ?? initialHour12;
+                        parsedHour = parsedHour.clamp(1, 12);
+                        if (selectedPeriodValue == 'AM') {
+                          parsedHour = parsedHour % 12;
+                        } else {
+                          parsedHour = parsedHour % 12 + 12;
+                        }
+
+                        final parsedMinute = (int.tryParse(minuteController.text) ?? task.startTime.minute).clamp(0, 59);
+
+                        task.startTime = DateTime(
+                          startOfDay.year,
+                          startOfDay.month,
+                          startOfDay.day,
+                          parsedHour,
+                          parsedMinute,
+                        );
+
+                        final parsedDurationHours = (int.tryParse(durationHourController.text) ?? durationHours).clamp(0, 24 * 7);
+                        final parsedDurationMinutes = (int.tryParse(durationMinuteController.text) ?? durationMinutes).clamp(0, 59);
+                        final totalDurationMinutes = parsedDurationHours * 60 + parsedDurationMinutes;
+                        final clampedDuration = totalDurationMinutes.clamp(1, 24 * 60);
+                        final newDuration = Duration(minutes: clampedDuration);
+
+                        if (task.duration != newDuration) {
+                          task.duration = newDuration;
+                          task.scheduledDuration = newDuration;
+                        }
+                        
+                        // Update recurring properties
+                        task.isRecurring = isRecurringValue;
+                        task.recurringEndDate = hasEndDateValue ? recurringEndDateValue : null;
+                        task.recurringStartDate ??= _normalizeDate(task.startTime);
+
+                        if (recurrenceTypeValue == 'weekly') {
+                          final effectiveWeekdays = recurringWeekdaysValue.isEmpty
+                              ? [task.startTime.weekday]
+                              : (List<int>.from(recurringWeekdaysValue)..sort());
+                          task.recurringWeekdays = effectiveWeekdays;
+                        } else {
+                          task.recurringWeekdays = [];
+                        }
+
+                        // Note: task.subTasks is already updated directly in the dialog
+                        // Update all existing instances with the new data (including sub-tasks)
+                        _updateAllRecurringInstances(task);
+                        
+                        // Regenerate instances to handle schedule changes (new dates, removed dates, etc.)
+                        // Find the parent task to regenerate from
+                        final parentId = task.recurringParentId ?? task.id;
+                        Task? parentTask = task.recurringParentId == null ? task : null;
+                        
+                        // If this is an instance, find the parent task
+                        if (parentTask == null) {
+                          for (final entry in tasksByDate.entries) {
+                            for (final t in entry.value) {
+                              if (t.id == parentId) {
+                                parentTask = t;
+                                break;
+                              }
+                            }
+                            if (parentTask != null) break;
+                          }
+                        }
+                        
+                        // Regenerate instances from the parent
+                        if (parentTask != null && parentTask.isRecurring) {
+                          _generateRecurringTaskInstances(parentTask);
+                        }
+                      });
+                      Navigator.of(context).pop();
+                    },
+                    child: const Text('Save for all instances'),
+                  ),
                 TextButton(
                   onPressed: () {
                     final selectedPeriodValue = dialogState['selectedPeriod'] as String;
@@ -1269,11 +1489,29 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                       task.isRecurring = isRecurringValue;
 
                       if (!isRecurringValue) {
+                        // Clear all instances using the parent ID
+                        final parentId = task.recurringParentId ?? task.id;
+                        _clearRecurringInstances(parentId);
+                        
+                        // If this is an instance, also update the parent task to non-recurring
+                        if (task.recurringParentId != null) {
+                          for (final entry in tasksByDate.entries) {
+                            for (final t in entry.value) {
+                              if (t.id == parentId) {
+                                t.isRecurring = false;
+                                t.recurringStartDate = null;
+                                t.recurringEndDate = null;
+                                t.recurringWeekdays = [];
+                                break;
+                              }
+                            }
+                          }
+                        }
+                        
                         task.recurringStartDate = null;
                         task.recurringEndDate = null;
                         task.recurringWeekdays = [];
                         task.recurringParentId = null;
-                        _clearRecurringInstances(task.id);
                       } else {
                         task.recurringEndDate = hasEndDateValue ? recurringEndDateValue : null;
                         task.recurringStartDate ??= _normalizeDate(task.startTime);
@@ -1288,7 +1526,8 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                         }
                       }
 
-                      if (task.isRecurring) {
+                      // Generate recurring instances only if this is a parent task (not an instance)
+                      if (task.isRecurring && task.recurringParentId == null) {
                         _generateRecurringTaskInstances(task);
                       }
                       
@@ -1399,6 +1638,75 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
     }
   }
 
+  void _updateAllRecurringInstances(Task templateTask) {
+    // Find the parent task ID
+    final parentId = templateTask.recurringParentId ?? templateTask.id;
+    
+    // Update all instances across all dates
+    final entries = tasksByDate.entries.toList();
+    for (final entry in entries) {
+      for (var task in entry.value) {
+        if (task.recurringParentId == parentId || task.id == parentId) {
+          // Update task properties from template
+          task.title = templateTask.title;
+          task.duration = templateTask.duration;
+          task.scheduledDuration = templateTask.scheduledDuration;
+          
+          // Preserve the original start time (date + time of day)
+          final originalDate = _normalizeDate(task.startTime);
+          task.startTime = DateTime(
+            originalDate.year,
+            originalDate.month,
+            originalDate.day,
+            templateTask.startTime.hour,
+            templateTask.startTime.minute,
+          );
+          
+          // Copy sub-tasks, creating independent instances for each task
+          final copiedSubTasks = templateTask.subTasks.map((subTask) {
+            // Try to find matching sub-task by title to preserve completion status
+            final existingSubTask = task.subTasks.firstWhere(
+              (existing) => existing.title == subTask.title,
+              orElse: () => SubTask(
+                id: '${subTask.id}_${task.startTime.millisecondsSinceEpoch}',
+                title: subTask.title,
+                isCompleted: false,
+              ),
+            );
+            
+            // Update title in case it changed, but keep completion status
+            existingSubTask.title = subTask.title;
+            return existingSubTask;
+          }).toList();
+          
+          // Add any new sub-tasks that don't exist yet
+          for (var subTask in templateTask.subTasks) {
+            if (!copiedSubTasks.any((s) => s.title == subTask.title)) {
+              copiedSubTasks.add(SubTask(
+                id: '${subTask.id}_${task.startTime.millisecondsSinceEpoch}',
+                title: subTask.title,
+                isCompleted: false,
+              ));
+            }
+          }
+          
+          task.subTasks = copiedSubTasks;
+          
+          // Update recurring properties
+          task.isRecurring = templateTask.isRecurring;
+          task.recurringStartDate = templateTask.recurringStartDate;
+          task.recurringEndDate = templateTask.recurringEndDate;
+          task.recurringWeekdays = List<int>.from(templateTask.recurringWeekdays);
+        }
+      }
+    }
+    
+    // Save all affected dates
+    for (final entry in entries) {
+      _firebaseService?.saveTasksForDate(entry.key, entry.value);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -1423,6 +1731,11 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
       appBar: AppBar(
         title: const Text('Motivator'),
         actions: [
+          // Weather widget
+          const Padding(
+            padding: EdgeInsets.only(right: 16.0),
+            child: WeatherWidget(),
+          ),
           // User email display
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8.0),
@@ -1467,11 +1780,13 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
           ),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          Expanded(
-            child: Row(
-              children: [
+          Column(
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
                 Expanded(
                   flex: 2,
                   child: Column(
@@ -1897,6 +2212,32 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
               ],
             ),
           ),
+            ],
+          ),
+          // Notes Widget - positioned at bottom middle
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 20,
+            child: Center(
+              child: NotesWidget(
+                initialNotes: _scratchNotes,
+                onNotesChanged: (notes) {
+                  setState(() {
+                    _scratchNotes = notes;
+                  });
+                  // Auto-save notes to Firebase
+                  _saveNotesToFirebase();
+                },
+              ),
+            ),
+          ),
+          // Gemini Chat Widget - positioned at bottom right
+          Positioned(
+            right: 20,
+            bottom: 20,
+            child: const GeminiChatWidget(),
+          ),
         ],
       ),
     );
@@ -1966,12 +2307,22 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
           recurringTask.startTime.minute,
         );
 
+        // Copy sub-tasks from parent, creating independent instances
+        final copiedSubTasks = recurringTask.subTasks.map((subTask) {
+          return SubTask(
+            id: '${subTask.id}_${normalizedDate.millisecondsSinceEpoch}',
+            title: subTask.title,
+            isCompleted: false, // Start fresh for each instance
+          );
+        }).toList();
+
         final instance = Task(
           id: '${recurringTask.id}_${normalizedDate.millisecondsSinceEpoch}',
           title: recurringTask.title,
           startTime: instanceStart,
           duration: recurringTask.duration,
           scheduledDuration: recurringTask.scheduledDuration,
+          subTasks: copiedSubTasks,
           recurringParentId: recurringTask.id,
           isRecurring: true,
           recurringStartDate: recurringTask.recurringStartDate,

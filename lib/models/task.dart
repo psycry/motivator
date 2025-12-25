@@ -19,6 +19,34 @@ class TrackingSegment {
   }
 }
 
+class SubTask {
+  final String id;
+  String title;
+  bool isCompleted;
+
+  SubTask({
+    required this.id,
+    required this.title,
+    this.isCompleted = false,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'title': title,
+      'isCompleted': isCompleted,
+    };
+  }
+
+  factory SubTask.fromMap(Map<String, dynamic> map) {
+    return SubTask(
+      id: map['id'] as String,
+      title: map['title'] as String,
+      isCompleted: map['isCompleted'] as bool? ?? false,
+    );
+  }
+}
+
 class Task {
   final String id;
   String title;
@@ -32,6 +60,7 @@ class Task {
   DateTime? trackingStart;
   bool isCompleted;
   List<TrackingSegment> trackingSegments;
+  List<SubTask> subTasks;
   
   // Recurring task properties
   bool isRecurring;
@@ -53,6 +82,7 @@ class Task {
     this.trackingStart,
     this.isCompleted = false,
     List<TrackingSegment>? trackingSegments,
+    List<SubTask>? subTasks,
     this.isRecurring = false,
     this.recurringStartDate,
     this.recurringEndDate,
@@ -63,6 +93,7 @@ class Task {
         trackedDuration = trackedDuration ?? Duration.zero,
         lateTrackedDuration = lateTrackedDuration ?? Duration.zero,
         trackingSegments = trackingSegments ?? [],
+        subTasks = subTasks ?? [],
         recurringWeekdays = recurringWeekdays ?? [];
 
   Map<String, dynamic> toMap() {
@@ -79,6 +110,7 @@ class Task {
       'trackingStart': trackingStart?.toIso8601String(),
       'isCompleted': isCompleted,
       'trackingSegments': trackingSegments.map((s) => s.toMap()).toList(),
+      'subTasks': subTasks.map((s) => s.toMap()).toList(),
       'isRecurring': isRecurring,
       'recurringStartDate': recurringStartDate?.toIso8601String(),
       'recurringEndDate': recurringEndDate?.toIso8601String(),
@@ -104,6 +136,9 @@ class Task {
       isCompleted: map['isCompleted'] as bool,
       trackingSegments: (map['trackingSegments'] as List<dynamic>?)
           ?.map((s) => TrackingSegment.fromMap(s as Map<String, dynamic>))
+          .toList() ?? [],
+      subTasks: (map['subTasks'] as List<dynamic>?)
+          ?.map((s) => SubTask.fromMap(s as Map<String, dynamic>))
           .toList() ?? [],
       isRecurring: map['isRecurring'] as bool? ?? false,
       recurringStartDate: map['recurringStartDate'] != null

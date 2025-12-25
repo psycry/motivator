@@ -230,4 +230,43 @@ class FirebaseService {
 
     await batch.commit();
   }
+
+  // Save notes
+  Future<void> saveNotes(String notes) async {
+    try {
+      await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('notes')
+          .doc('scratch_notes')
+          .set({
+        'content': notes,
+        'lastModified': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('Error saving notes: $e');
+      rethrow;
+    }
+  }
+
+  // Load notes
+  Future<String> loadNotes() async {
+    try {
+      final doc = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('notes')
+          .doc('scratch_notes')
+          .get();
+      
+      if (doc.exists) {
+        final data = doc.data();
+        return data?['content'] as String? ?? '';
+      }
+      return '';
+    } catch (e) {
+      print('Error loading notes: $e');
+      return '';
+    }
+  }
 }
