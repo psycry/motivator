@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/user_model.dart';
+import '../models/user_preferences.dart';
 
 class UserService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -109,5 +110,52 @@ class UserService {
       print('Error getting user count: $e');
       return 0;
     }
+  }
+
+  // Save user preferences
+  Future<void> saveUserPreferences(String uid, UserPreferences preferences) async {
+    try {
+      await _usersCollection.doc(uid).update({
+        'preferences': preferences.toMap(),
+      });
+      print('✓ Saved user preferences for $uid');
+    } catch (e) {
+      print('Error saving user preferences: $e');
+      // If document doesn't exist, create it with preferences
+      await _usersCollection.doc(uid).set({
+        'preferences': preferences.toMap(),
+      }, SetOptions(merge: true));
+    }
+  }
+
+  // Load user preferences
+  Future<UserPreferences> loadUserPreferences(String uid) async {
+    try {
+      final docSnapshot = await _usersCollection.doc(uid).get();
+      if (docSnapshot.exists) {
+        final data = docSnapshot.data() as Map<String, dynamic>;
+        if (data.containsKey('preferences')) {
+          return UserPreferences.fromMap(data['preferences'] as Map<String, dynamic>);
+        }
+      }
+      // Return default preferences if not found
+      return UserPreferences();
+    } catch (e) {
+      print('Error loading user preferences: $e');
+      return UserPreferences();
+    }
+  }
+
+  // Stream user preferences (real-time updates)
+  Stream<UserPreferences> streamUserPreferences(String uid) {
+    return _usersCollection.doc(uid).snapshots().map((snapshot) {
+      if (snapshot.exists) {
+        final data = snapshot.data() as Map<String, dynamic>;
+        if (data.containsKey('preferences')) {
+          return UserPreferences.fromMap(data['preferences'] as Map<String, dynamic>);
+        }
+      }
+      return UserPreferences();
+    });
   }
 }

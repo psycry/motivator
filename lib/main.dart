@@ -1,3 +1,23 @@
+// ⚠️ WARNING: DO NOT RUN THIS FILE DIRECTLY!
+// 
+// This app uses product flavors. You MUST specify a flavor when running:
+//
+// ✅ CORRECT:
+//   flutter run --flavor free -t lib/main_free.dart
+//   flutter run --flavor paid -t lib/main_paid.dart
+//
+// ❌ WRONG:
+//   flutter run lib/main.dart  (will fail with Gradle error)
+//
+// In VS Code: Use the Run and Debug panel (Ctrl+Shift+D) and select:
+//   - "Free (Debug)" or "Paid (Debug)"
+//
+// Quick scripts available:
+//   - run_free.bat
+//   - run_paid.bat
+//
+// See: docs/IMPORTANT_RUNNING_INSTRUCTIONS.md
+
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -15,9 +35,14 @@ import 'widgets/calendar_dialog.dart';
 import 'widgets/gemini_chat_widget.dart';
 import 'widgets/notes_widget.dart';
 import 'widgets/weather_widget.dart';
+import 'widgets/settings_dialog.dart';
 import 'services/firebase_service.dart';
 import 'services/auth_service.dart';
+import 'services/user_service.dart';
+import 'services/notification_service.dart';
+import 'models/user_preferences.dart';
 import 'pages/auth_page.dart';
+import 'config/flavor_config.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,10 +70,13 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final flavorConfig = FlavorConfig.instance;
+    
     return MaterialApp(
-      title: 'Motivator',
+      title: flavorConfig.appTitle,
       theme: ThemeData(
-        primarySwatch: Colors.blue,
+        primarySwatch: Colors.deepPurple,
+        primaryColor: Colors.deepPurple,
         useMaterial3: true,
       ),
       debugShowCheckedModeBanner: false,
@@ -130,10 +158,15 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
   
   FirebaseService? _firebaseService;
   final AuthService _authService = AuthService();
+  final UserService _userService = UserService();
+  final NotificationService _notificationService = NotificationService();
   
   // Notes
   String _scratchNotes = '';
   bool _isLoading = true;
+  
+  // User preferences
+  UserPreferences _userPreferences = UserPreferences();
 
   DateTime _normalizeDate(DateTime date) {
     return DateTime(date.year, date.month, date.day);
@@ -173,6 +206,12 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
       print('✓ User authenticated: $userId');
       print('Initializing Firebase service for user: $userId');
       _firebaseService = FirebaseService(userId: userId);
+      
+      // Initialize notification service
+      await _notificationService.initialize();
+      
+      // Load user preferences
+      await _loadUserPreferences();
       
       // Load tasks from Firebase
       print('=== LOADING TASKS FROM FIREBASE ===');
@@ -228,6 +267,9 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
           print('    • ${task.title} (${task.id})');
         }
       }
+      
+      // Schedule notifications for all loaded tasks
+      await _rescheduleAllNotifications();
     } catch (e) {
       print('❌ Error loading tasks from Firebase: $e');
       print('Stack trace: ${StackTrace.current}');
@@ -273,6 +315,9 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
       await _firebaseService!.saveTasksForDate(selectedDate, timelineTasks)
           .timeout(const Duration(seconds: 5));
       print('✓ _saveTasksToFirebase completed successfully');
+      
+      // Reschedule notifications for updated tasks
+      await _rescheduleAllNotifications();
     } catch (e) {
       // Silently fail - app works without Firebase
       print('❌ Could not save to Firebase: $e');
@@ -328,6 +373,81 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
     } catch (e) {
       print('❌ Could not load notes from Firebase: $e');
     }
+  }
+
+  Future<void> _loadUserPreferences() async {
+    final userId = _authService.currentUserId;
+    if (userId == null) return;
+    
+    try {
+      final preferences = await _userService.loadUserPreferences(userId);
+      setState(() {
+        _userPreferences = preferences;
+      });
+      print('✓ Loaded user preferences: notifications=${preferences.notificationsEnabled}, minutes=${preferences.notificationMinutesBefore}');
+    } catch (e) {
+      print('❌ Error loading user preferences: $e');
+    }
+  }
+
+  Future<void> _saveUserPreferences(UserPreferences preferences) async {
+    final userId = _authService.currentUserId;
+    if (userId == null) return;
+    
+    try {
+      await _userService.saveUserPreferences(userId, preferences);
+      setState(() {
+        _userPreferences = preferences;
+      });
+      
+      // Reschedule all notifications with new settings
+      await _rescheduleAllNotifications();
+      
+      print('✓ Saved user preferences');
+    } catch (e) {
+      print('❌ Error saving user preferences: $e');
+    }
+  }
+
+  Future<void> _rescheduleAllNotifications() async {
+    // Collect all tasks from all dates
+    final allTasks = <Task>[];
+    for (final tasks in tasksByDate.values) {
+      allTasks.addAll(tasks);
+    }
+    
+    await _notificationService.rescheduleAllNotifications(
+      tasks: allTasks,
+      minutesBefore: _userPreferences.notificationMinutesBefore,
+      enabled: _userPreferences.notificationsEnabled,
+    );
+  }
+
+  void _showSettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => SettingsDialog(
+        initialPreferences: _userPreferences,
+        onSave: (preferences) async {
+          await _saveUserPreferences(preferences);
+          
+          // Show confirmation
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  preferences.notificationsEnabled
+                      ? 'Notifications enabled - ${preferences.notificationMinutesBefore} min before tasks'
+                      : 'Notifications disabled',
+                ),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+        },
+      ),
+    );
   }
 
   void _centerOnCurrentTime() {
@@ -1733,22 +1853,28 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
         actions: [
           // Weather widget
           const Padding(
-            padding: EdgeInsets.only(right: 16.0),
+            padding: EdgeInsets.only(right: 8.0),
             child: WeatherWidget(),
           ),
           // User email display
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0),
-            child: Center(
-              child: Text(
-                _authService.currentUser?.email ?? '',
-                style: const TextStyle(fontSize: 12),
+          Flexible(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 4.0),
+              child: Center(
+                child: Text(
+                  _authService.currentUser?.email ?? '',
+                  style: const TextStyle(fontSize: 12),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
               ),
             ),
           ),
           PopupMenuButton<String>(
             onSelected: (value) async {
-              if (value == 'clear_all') {
+              if (value == 'settings') {
+                _showSettingsDialog();
+              } else if (value == 'clear_all') {
                 _clearAllTasks();
               } else if (value == 'logout') {
                 await _authService.signOut();
@@ -1756,6 +1882,16 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
               }
             },
             itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'settings',
+                child: Row(
+                  children: [
+                    Icon(Icons.settings, color: Colors.blue),
+                    SizedBox(width: 8),
+                    Text('Settings'),
+                  ],
+                ),
+              ),
               const PopupMenuItem(
                 value: 'clear_all',
                 child: Row(
@@ -1789,8 +1925,12 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                   children: [
                 Expanded(
                   flex: 2,
-                  child: Column(
-                    children: [
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border(right: BorderSide(color: Colors.grey.shade400, width: 2)),
+                    ),
+                    child: Column(
+                      children: [
                 // Weekday selector section
                 Container(
                   padding: const EdgeInsets.all(8.0),
@@ -1871,9 +2011,14 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                 ),
                 // Timeline section
                 Expanded(
-                  child: SingleChildScrollView(
+                  child: Scrollbar(
                     controller: _scrollController,
-                    child: Stack(
+                    thumbVisibility: true,
+                    thickness: 8.0,
+                    radius: const Radius.circular(4),
+                    child: SingleChildScrollView(
+                      controller: _scrollController,
+                      child: Stack(
                       key: _stackKey,
                       children: [
                         TimelineWidget(pixelsPerMinute: pixelsPerMinute),
@@ -1969,6 +2114,7 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                       ],
                     ),
                   ),
+                  ),
                 ),
                 // Completed tasks section - under timeline only
                 DragTarget<Task>(
@@ -1976,7 +2122,7 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                     return Container(
                       height: completedTasksSectionHeight,
                       decoration: BoxDecoration(
-                        border: Border(top: BorderSide(color: Colors.grey.shade300, width: 2)),
+                        border: Border(top: BorderSide(color: Colors.grey.shade400, width: 2)),
                         color: candidateData.isNotEmpty ? Colors.green.shade100 : Colors.grey.shade50,
                       ),
                       child: Column(
@@ -1993,9 +2139,13 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                             ),
                           ),
                           Expanded(
-                            child: ListView.builder(
-                              itemCount: completedTasks.length,
-                              itemBuilder: (context, index) {
+                            child: Scrollbar(
+                              thumbVisibility: true,
+                              thickness: 8.0,
+                              radius: const Radius.circular(4),
+                              child: ListView.builder(
+                                itemCount: completedTasks.length,
+                                itemBuilder: (context, index) {
                                 final task = completedTasks[index];
                                 return Draggable<Task>(
                                   data: task,
@@ -2069,7 +2219,8 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                                     ),
                                   ),
                                 );
-                              },
+                                },
+                              ),
                             ),
                           ),
                         ],
@@ -2094,7 +2245,8 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                     });
                   },
                 ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
                 Expanded(
@@ -2105,7 +2257,7 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                 Container(
                   padding: EdgeInsets.all(8.0),
                   decoration: BoxDecoration(
-                    border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
+                    border: Border(bottom: BorderSide(color: Colors.grey.shade400, width: 2)),
                     color: Colors.white,
                   ),
                   child: Column(
@@ -2158,9 +2310,13 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                 Expanded(
                   child: DragTarget<Task>(
                     builder: (context, candidateData, rejectedData) {
-                      return ListView.builder(
-                        itemCount: sideTasks.length,
-                        itemBuilder: (context, index) {
+                      return Scrollbar(
+                        thumbVisibility: true,
+                        thickness: 8.0,
+                        radius: const Radius.circular(4),
+                        child: ListView.builder(
+                          itemCount: sideTasks.length,
+                          itemBuilder: (context, index) {
                           final task = sideTasks[index];
                           return Draggable<Task>(
                             data: task,
@@ -2180,7 +2336,8 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                               child: _buildTaskItem(task, isOnTimeline: false),
                             ),
                           );
-                        },
+                          },
+                        ),
                       );
                     },
                     onAccept: (Task task) {
@@ -2236,7 +2393,9 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
           Positioned(
             right: 20,
             bottom: 20,
-            child: const GeminiChatWidget(),
+            child: GeminiChatWidget(
+              userPreferences: _userPreferences,
+            ),
           ),
         ],
       ),

@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
+import '../models/user_preferences.dart';
 
 class GeminiChatWidget extends StatefulWidget {
-  const GeminiChatWidget({super.key});
+  final UserPreferences userPreferences;
+  
+  const GeminiChatWidget({
+    super.key,
+    required this.userPreferences,
+  });
 
   @override
   State<GeminiChatWidget> createState() => _GeminiChatWidgetState();
@@ -24,14 +30,14 @@ class _GeminiChatWidgetState extends State<GeminiChatWidget> {
   }
 
   void _initializeGemini() {
-    // TODO: Replace with your actual API key or load from environment
-    const apiKey = 'AIzaSyAPKDZClY0uv1txaRXRwtPhANAmOvkMQbk';
+    // Get API key from user preferences
+    final apiKey = widget.userPreferences.geminiApiKey;
     
-    if (apiKey == 'YOUR_GEMINI_API_KEY_HERE') {
+    if (apiKey == null || apiKey.isEmpty) {
       // Show a message that API key is needed
       setState(() {
         _messages.add(ChatMessage(
-          text: 'Please add your Gemini API key in lib/widgets/gemini_chat_widget.dart',
+          text: 'Please add your Gemini API key in Settings to use AI chat.\n\nGet your free API key from:\nmakersuite.google.com/app/apikey\n\nThen go to Settings (gear icon) and enter your API key.',
           isUser: false,
         ));
       });
@@ -123,6 +129,7 @@ class _GeminiChatWidgetState extends State<GeminiChatWidget> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade400, width: 2),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.2),

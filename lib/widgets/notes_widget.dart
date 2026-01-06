@@ -42,6 +42,7 @@ class _NotesWidgetState extends State<NotesWidget> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade400, width: 2),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.2),
