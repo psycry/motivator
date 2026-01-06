@@ -1,0 +1,79 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Free (Debug)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_free.dart",
+      "args": [
+        "--flavor",
+        "free"
+      ]
+    },
+    {
+      "name": "main.dart (Redirects to Free)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_free.dart",
+      "args": [
+        "--flavor",
+        "free"
+      ]
+    },
+    {
+      "name": "Paid (Debug)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_paid.dart",
+      "args": [
+        "--flavor",
+        "paid"
+      ]
+    },
+    {
+      "name": "Free (Profile)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_free.dart",
+      "args": [
+        "--flavor",
+        "free",
+        "--profile"
+      ]
+    },
+    {
+      "name": "Paid (Profile)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_paid.dart",
+      "args": [
+        "--flavor",
+        "paid",
+        "--profile"
+      ]
+    },
+    {
+      "name": "Free (Release)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_free.dart",
+      "args": [
+        "--flavor",
+        "free",
+        "--release"
+      ]
+    },
+    {
+      "name": "Paid (Release)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_paid.dart",
+      "args": [
+        "--flavor",
+        "paid",
+        "--release"
+      ]
+    }
+  ]
+}

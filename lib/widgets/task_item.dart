@@ -326,37 +326,41 @@ class TaskItem extends StatelessWidget {
                     SizedBox(height: 4),
                     Row(
                       children: [
-                        SizedBox(
-                          height: 24,
-                          child: TextButton.icon(
-                            style: TextButton.styleFrom(
-                              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                              minimumSize: Size(0, 24),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              foregroundColor: Colors.white,
+                        Flexible(
+                          child: SizedBox(
+                            height: 24,
+                            child: TextButton.icon(
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+                                minimumSize: Size(0, 24),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                foregroundColor: Colors.white,
+                              ),
+                              icon: Icon(Icons.refresh, size: 14),
+                              label: Text('Reset', style: TextStyle(fontSize: 11)),
+                              onPressed: onReset,
                             ),
-                            icon: Icon(Icons.refresh, size: 16),
-                            label: Text('Reset', style: TextStyle(fontSize: 12)),
-                            onPressed: onReset,
                           ),
                         ),
-                        SizedBox(width: 8),
-                        SizedBox(
-                          height: 24,
-                          child: TextButton.icon(
-                            style: TextButton.styleFrom(
-                              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                              minimumSize: Size(0, 24),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              foregroundColor: isCompleted ? Colors.white70 : Colors.white,
+                        SizedBox(width: 4),
+                        Flexible(
+                          child: SizedBox(
+                            height: 24,
+                            child: TextButton.icon(
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+                                minimumSize: Size(0, 24),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                foregroundColor: isCompleted ? Colors.white70 : Colors.white,
+                              ),
+                              icon: Icon(Icons.check_circle, size: 14),
+                              label: Text('Done', style: TextStyle(fontSize: 11)),
+                              onPressed: () {
+                                if (!isCompleted) {
+                                  onComplete();
+                                }
+                              },
                             ),
-                            icon: Icon(Icons.check_circle, size: 16),
-                            label: Text('Complete', style: TextStyle(fontSize: 12)),
-                            onPressed: () {
-                              if (!isCompleted) {
-                                onComplete();
-                              }
-                            },
                           ),
                         ),
                       ],

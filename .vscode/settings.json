@@ -1,0 +1,19 @@
+{
+  // Set default launch configuration to Free version
+  "launch": {
+    "configurations": [],
+    "compounds": []
+  },
+  
+  // Flutter settings
+  "dart.flutterSdkPath": null,
+  
+  // Show warning when trying to run main.dart directly
+  "files.associations": {
+    "lib/main.dart": "dart"
+  },
+  
+  // Recommended: Always use launch configurations
+  "dart.debugExternalPackageLibraries": false,
+  "dart.debugSdkLibraries": false
+}

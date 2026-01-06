@@ -152,6 +152,8 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
   List<Task> sideTasks = [];
   final GlobalKey _stackKey = GlobalKey();
   final ScrollController _scrollController = ScrollController();
+  final ScrollController _completedTasksScrollController = ScrollController();
+  final ScrollController _sideTasksScrollController = ScrollController();
 
   Timer? _timer;
   Task? currentTask;
@@ -474,8 +476,10 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
 
   @override
   void dispose() {
-    _timer?.cancel();
     _scrollController.dispose();
+    _completedTasksScrollController.dispose();
+    _sideTasksScrollController.dispose();
+    _timer?.cancel();
     super.dispose();
   }
 
@@ -1925,12 +1929,8 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                   children: [
                 Expanded(
                   flex: 2,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      border: Border(right: BorderSide(color: Colors.grey.shade400, width: 2)),
-                    ),
-                    child: Column(
-                      children: [
+                  child: Column(
+                    children: [
                 // Weekday selector section
                 Container(
                   padding: const EdgeInsets.all(8.0),
@@ -2011,14 +2011,18 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                 ),
                 // Timeline section
                 Expanded(
-                  child: Scrollbar(
-                    controller: _scrollController,
-                    thumbVisibility: true,
-                    thickness: 8.0,
-                    radius: const Radius.circular(4),
-                    child: SingleChildScrollView(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border(right: BorderSide(color: Colors.grey.shade400, width: 2)),
+                    ),
+                    child: Scrollbar(
                       controller: _scrollController,
-                      child: Stack(
+                      thumbVisibility: true,
+                      thickness: 8.0,
+                      radius: const Radius.circular(4),
+                      child: SingleChildScrollView(
+                        controller: _scrollController,
+                        child: Stack(
                       key: _stackKey,
                       children: [
                         TimelineWidget(pixelsPerMinute: pixelsPerMinute),
@@ -2115,6 +2119,7 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                     ),
                   ),
                   ),
+                  ),
                 ),
                 // Completed tasks section - under timeline only
                 DragTarget<Task>(
@@ -2122,7 +2127,10 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                     return Container(
                       height: completedTasksSectionHeight,
                       decoration: BoxDecoration(
-                        border: Border(top: BorderSide(color: Colors.grey.shade400, width: 2)),
+                        border: Border(
+                          top: BorderSide(color: Colors.grey.shade400, width: 2),
+                          right: BorderSide(color: Colors.grey.shade400, width: 2),
+                        ),
                         color: candidateData.isNotEmpty ? Colors.green.shade100 : Colors.grey.shade50,
                       ),
                       child: Column(
@@ -2140,10 +2148,12 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                           ),
                           Expanded(
                             child: Scrollbar(
+                              controller: _completedTasksScrollController,
                               thumbVisibility: true,
                               thickness: 8.0,
                               radius: const Radius.circular(4),
                               child: ListView.builder(
+                                controller: _completedTasksScrollController,
                                 itemCount: completedTasks.length,
                                 itemBuilder: (context, index) {
                                 final task = completedTasks[index];
@@ -2245,8 +2255,7 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                     });
                   },
                 ),
-                      ],
-                    ),
+                    ],
                   ),
                 ),
                 Expanded(
@@ -2311,10 +2320,12 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                   child: DragTarget<Task>(
                     builder: (context, candidateData, rejectedData) {
                       return Scrollbar(
+                        controller: _sideTasksScrollController,
                         thumbVisibility: true,
                         thickness: 8.0,
                         radius: const Radius.circular(4),
                         child: ListView.builder(
+                          controller: _sideTasksScrollController,
                           itemCount: sideTasks.length,
                           itemBuilder: (context, index) {
                           final task = sideTasks[index];
@@ -2366,9 +2377,9 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                     ],
                   ),
                 ),
-              ],
-            ),
-          ),
+                  ],
+                ),
+              ),
             ],
           ),
           // Notes Widget - positioned at bottom middle

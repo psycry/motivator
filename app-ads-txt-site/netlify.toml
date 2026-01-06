@@ -1,0 +1,28 @@
+# Netlify configuration file
+# This ensures proper serving of app-ads.txt
+
+[build]
+  publish = "."
+
+[[headers]]
+  for = "/app-ads.txt"
+  [headers.values]
+    Content-Type = "text/plain; charset=utf-8"
+    Cache-Control = "public, max-age=3600"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
+
+# Redirect rules (optional)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+  force = false
+  
+  # Don't redirect app-ads.txt
+  conditions = {path = ["!/app-ads.txt"]}

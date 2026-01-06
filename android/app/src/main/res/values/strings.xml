@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Default app name - overridden by product flavors in build.gradle.kts -->
+    <string name="app_name">Motivator</string>
+    <string name="app_description">Task and time management app</string>
+</resources>

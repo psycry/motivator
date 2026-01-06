@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+  <!-- Simple white "M" for Motivator on purple background -->
+  <group android:translateX="54" android:translateY="54">
+    <!-- Large "M" letter -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M-20,20 L-20,-20 L-10,-10 L0,-20 L10,-10 L20,-20 L20,20 L12,20 L12,-8 L0,4 L-12,-8 L-12,20 Z"/>
+  </group>
+</vector>
