@@ -1149,6 +1149,9 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                 ? task.recurringWeekdays
                 : [task.startTime.weekday],
           ),
+          'notificationsEnabled': task.notificationsEnabled,
+          'useCustomNotificationTime': task.notificationMinutesBefore != null,
+          'notificationMinutesBefore': task.notificationMinutesBefore ?? _userPreferences.notificationMinutesBefore,
         };
 
         return StatefulBuilder(
@@ -1454,6 +1457,113 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                       icon: Icon(Icons.add),
                       label: Text('Add Sub-task'),
                     ),
+                    SizedBox(height: 16),
+                    Divider(),
+                    // Notification settings section
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Notifications',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    CheckboxListTile(
+                      title: const Text('Enable notifications for this task'),
+                      subtitle: Text(
+                        dialogState['notificationsEnabled'] as bool
+                            ? 'You will be notified before this task starts'
+                            : 'No notifications for this task',
+                      ),
+                      value: dialogState['notificationsEnabled'] as bool,
+                      onChanged: (value) {
+                        setModalState(() {
+                          dialogState['notificationsEnabled'] = value ?? true;
+                        });
+                      },
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    if (dialogState['notificationsEnabled'] as bool) ...[
+                      SizedBox(height: 8),
+                      CheckboxListTile(
+                        title: const Text('Custom notification time'),
+                        subtitle: Text(
+                          dialogState['useCustomNotificationTime'] as bool
+                              ? 'Using custom time for this task'
+                              : 'Using global default (${_userPreferences.notificationMinutesBefore} min)',
+                        ),
+                        value: dialogState['useCustomNotificationTime'] as bool,
+                        onChanged: (value) {
+                          setModalState(() {
+                            dialogState['useCustomNotificationTime'] = value ?? false;
+                          });
+                        },
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      if (dialogState['useCustomNotificationTime'] as bool) ...[
+                        SizedBox(height: 12),
+                        Text(
+                          'Notify me before task starts:',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        SizedBox(height: 12),
+                        // Quick select buttons (same as global settings)
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [1, 5, 10, 15, 30, 60].map((minutes) {
+                            final isSelected = (dialogState['notificationMinutesBefore'] as int) == minutes;
+                            return ChoiceChip(
+                              label: Text(minutes == 1 ? '1 min' : '$minutes min'),
+                              selected: isSelected,
+                              onSelected: (selected) {
+                                if (selected) {
+                                  setModalState(() {
+                                    dialogState['notificationMinutesBefore'] = minutes;
+                                  });
+                                }
+                              },
+                              selectedColor: Colors.blue,
+                              labelStyle: TextStyle(
+                                color: isSelected ? Colors.white : Colors.black87,
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                        SizedBox(height: 12),
+                        // Custom slider for fine-tuning
+                        Row(
+                          children: [
+                            Text('Custom: ', style: Theme.of(context).textTheme.bodySmall),
+                            Expanded(
+                              child: Slider(
+                                value: (dialogState['notificationMinutesBefore'] as int).toDouble(),
+                                min: 1,
+                                max: 60,
+                                divisions: 59,
+                                label: '${dialogState['notificationMinutesBefore']} min',
+                                onChanged: (value) {
+                                  setModalState(() {
+                                    dialogState['notificationMinutesBefore'] = value.round();
+                                  });
+                                },
+                              ),
+                            ),
+                            SizedBox(
+                              width: 60,
+                              child: Text(
+                                '${dialogState['notificationMinutesBefore']} min',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                                textAlign: TextAlign.right,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
                   ],
                 ),
               ),
@@ -1534,8 +1644,14 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                           task.recurringWeekdays = [];
                         }
 
+                        // Update notification settings
+                        task.notificationsEnabled = dialogState['notificationsEnabled'] as bool;
+                        task.notificationMinutesBefore = (dialogState['useCustomNotificationTime'] as bool)
+                            ? dialogState['notificationMinutesBefore'] as int
+                            : null;
+                        
                         // Note: task.subTasks is already updated directly in the dialog
-                        // Update all existing instances with the new data (including sub-tasks)
+                        // Update all existing instances with the new data (including sub-tasks and notifications)
                         _updateAllRecurringInstances(task);
                         
                         // Regenerate instances to handle schedule changes (new dates, removed dates, etc.)
@@ -1650,9 +1766,26 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                         }
                       }
 
+                      // Update notification settings
+                      task.notificationsEnabled = dialogState['notificationsEnabled'] as bool;
+                      task.notificationMinutesBefore = (dialogState['useCustomNotificationTime'] as bool)
+                          ? dialogState['notificationMinutesBefore'] as int
+                          : null;
+                      
                       // Generate recurring instances only if this is a parent task (not an instance)
                       if (task.isRecurring && task.recurringParentId == null) {
                         _generateRecurringTaskInstances(task);
+                      }
+                      
+                      // Reschedule notifications with new settings
+                      if (_userPreferences.notificationsEnabled) {
+                        _notificationService.cancelTaskNotification(task);
+                        if (task.notificationsEnabled && !task.isCompleted && task.startTime.isAfter(DateTime.now())) {
+                          _notificationService.scheduleTaskNotification(
+                            task: task,
+                            minutesBefore: _userPreferences.notificationMinutesBefore,
+                          );
+                        }
                       }
                       
                       // Save changes
@@ -1933,7 +2066,7 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                     children: [
                 // Weekday selector section
                 Container(
-                  padding: const EdgeInsets.all(8.0),
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
                   decoration: BoxDecoration(
                     border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
                     color: Colors.white,
@@ -2001,7 +2134,7 @@ class _TaskCalendarPageState extends State<TaskCalendarPage> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 4),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: _buildWeekdayButtons(),

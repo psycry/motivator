@@ -55,19 +55,55 @@ class NotificationService {
         AndroidFlutterLocalNotificationsPlugin>();
     
     if (androidPlugin != null) {
-      await androidPlugin.requestNotificationsPermission();
+      final granted = await androidPlugin.requestNotificationsPermission();
+      print('📱 Android notification permission granted: $granted');
+      
+      // Request exact alarm permission for Android 12+
+      final exactAlarmGranted = await androidPlugin.requestExactAlarmsPermission();
+      print('⏰ Android exact alarm permission granted: $exactAlarmGranted');
     }
 
     final iosPlugin = _notifications.resolvePlatformSpecificImplementation<
         IOSFlutterLocalNotificationsPlugin>();
     
     if (iosPlugin != null) {
-      await iosPlugin.requestPermissions(
+      final granted = await iosPlugin.requestPermissions(
         alert: true,
         badge: true,
         sound: true,
       );
+      print('📱 iOS notification permission granted: $granted');
     }
+  }
+  
+  /// Check if notifications are enabled
+  Future<bool> areNotificationsEnabled() async {
+    if (!_initialized) {
+      await initialize();
+    }
+    
+    final androidPlugin = _notifications.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    
+    if (androidPlugin != null) {
+      final granted = await androidPlugin.areNotificationsEnabled();
+      print('📱 Android notifications enabled: $granted');
+      return granted ?? false;
+    }
+
+    final iosPlugin = _notifications.resolvePlatformSpecificImplementation<
+        IOSFlutterLocalNotificationsPlugin>();
+    
+    if (iosPlugin != null) {
+      final granted = await iosPlugin.requestPermissions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      return granted ?? false;
+    }
+    
+    return false;
   }
 
   void _onNotificationTapped(NotificationResponse response) {
@@ -76,16 +112,33 @@ class NotificationService {
   }
 
   /// Schedule a notification for a task
+  /// Uses per-task settings if available, otherwise falls back to global settings
   Future<void> scheduleTaskNotification({
     required Task task,
-    required int minutesBefore,
+    required int minutesBefore, // Global default
   }) async {
     if (!_initialized) {
       await initialize();
     }
 
+    // Check if notifications are enabled globally
+    final enabled = await areNotificationsEnabled();
+    if (!enabled) {
+      print('⚠️ Notifications are not enabled globally. Please enable them in settings.');
+      return;
+    }
+
+    // Check if notifications are enabled for this specific task
+    if (!task.notificationsEnabled) {
+      print('⚠️ Notifications disabled for task: ${task.title}');
+      return;
+    }
+
+    // Use per-task notification time if set, otherwise use global setting
+    final effectiveMinutesBefore = task.notificationMinutesBefore ?? minutesBefore;
+    
     // Calculate notification time
-    final notificationTime = task.startTime.subtract(Duration(minutes: minutesBefore));
+    final notificationTime = task.startTime.subtract(Duration(minutes: effectiveMinutesBefore));
     
     // Don't schedule if notification time is in the past
     if (notificationTime.isBefore(DateTime.now())) {
@@ -94,6 +147,7 @@ class NotificationService {
     }
 
     final scheduledDate = tz.TZDateTime.from(notificationTime, tz.local);
+    print('📅 Scheduling notification for ${task.title} at $scheduledDate (${effectiveMinutesBefore} min before)');
 
     const androidDetails = AndroidNotificationDetails(
       'task_reminders',
@@ -119,7 +173,7 @@ class NotificationService {
       await _notifications.zonedSchedule(
         task.id.hashCode, // Use task ID hash as notification ID
         'Task Starting Soon',
-        '${task.title} starts in $minutesBefore minute${minutesBefore != 1 ? 's' : ''}',
+        '${task.title} starts in $effectiveMinutesBefore minute${effectiveMinutesBefore != 1 ? 's' : ''}',
         scheduledDate,
         details,
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
@@ -128,7 +182,7 @@ class NotificationService {
         payload: task.id,
       );
       
-      print('✓ Scheduled notification for task "${task.title}" at $notificationTime');
+      print('✓ Scheduled notification for task "${task.title}" at $notificationTime (${effectiveMinutesBefore} min before)');
     } catch (e) {
       print('❌ Error scheduling notification: $e');
     }
@@ -209,5 +263,20 @@ class NotificationService {
       body,
       details,
     );
+    print('✓ Immediate notification shown: $title');
+  }
+  
+  /// Get pending notifications (for debugging)
+  Future<List<PendingNotificationRequest>> getPendingNotifications() async {
+    if (!_initialized) {
+      await initialize();
+    }
+    
+    final pending = await _notifications.pendingNotificationRequests();
+    print('📋 Pending notifications: ${pending.length}');
+    for (final notification in pending) {
+      print('  - ID: ${notification.id}, Title: ${notification.title}, Body: ${notification.body}');
+    }
+    return pending;
   }
 }

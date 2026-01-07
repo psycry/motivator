@@ -213,15 +213,17 @@ class _WeatherWidgetState extends State<WeatherWidget> {
                             _temperature,
                             style: const TextStyle(
                               color: Colors.white,
-                              fontSize: 18,
+                              fontSize: 16,
                               fontWeight: FontWeight.bold,
+                              height: 1.0,
                             ),
                           ),
                           Text(
                             _condition,
                             style: const TextStyle(
                               color: Colors.white,
-                              fontSize: 11,
+                              fontSize: 10,
+                              height: 1.0,
                             ),
                           ),
                         ],

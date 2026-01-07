@@ -68,6 +68,10 @@ class Task {
   DateTime? recurringEndDate; // null means indefinite
   String? recurringParentId; // ID of the original recurring task
   List<int> recurringWeekdays;
+  
+  // Notification settings (per-task)
+  bool notificationsEnabled; // Override global setting
+  int? notificationMinutesBefore; // null means use global setting
 
   Task({
     required this.id,
@@ -88,6 +92,8 @@ class Task {
     this.recurringEndDate,
     this.recurringParentId,
     List<int>? recurringWeekdays,
+    this.notificationsEnabled = true,
+    this.notificationMinutesBefore,
   })  : duration = duration,
         scheduledDuration = scheduledDuration ?? duration,
         trackedDuration = trackedDuration ?? Duration.zero,
@@ -116,6 +122,8 @@ class Task {
       'recurringEndDate': recurringEndDate?.toIso8601String(),
       'recurringParentId': recurringParentId,
       'recurringWeekdays': recurringWeekdays,
+      'notificationsEnabled': notificationsEnabled,
+      'notificationMinutesBefore': notificationMinutesBefore,
     };
   }
 
@@ -152,6 +160,8 @@ class Task {
               ?.map((value) => (value as num).toInt())
               .toList() ??
           [],
+      notificationsEnabled: map['notificationsEnabled'] as bool? ?? true,
+      notificationMinutesBefore: map['notificationMinutesBefore'] as int?,
     );
   }
 }
